@@ -4,16 +4,15 @@ Google Sheets API로 **프로젝트마다 시트를 만들고 일정과 진척 �
 
 ## 만들어지는 시트
 
-**대시보드** (맨 앞 시트): 프로젝트당 한 줄
-| 프로젝트 | PM | 시작일 | 종료일 | 작업수 | 완료 | 진척률 | 지연 | 상태 | 진행 바 | 시트 |
-- 작업수·완료·진척률·지연·상태는 프로젝트 시트를 참조하는 **수식**이라, 시트에서 직접 고쳐도 바로 반영됩니다.
-- 상태는 자동으로 계산됩니다: 대기 / 진행중 / 지연 / 완료. 지연은 빨간색, 완료는 초록색으로 표시됩니다.
+| 시트 | 내용 |
+|---|---|
+| **대시보드** | 프로젝트당 한 줄입니다. 작업수·완료·진척률·기간경과·일정차이·지연·차단·열린 RAID·다음 마감·**건강도(정상/주의/위험)**를 모두 수식으로 자동 집계합니다. |
+| **프로젝트 시트** | 프로젝트마다 하나입니다. **입력 칸**(ID·단계·작업명·담당자·우선순위·상태·진척률·시작일·종료일·선행작업·비고)과 **자동 칸**(계획진척률·일정차이·남은일수·기준종료일·일정변경·완료일·기간), 주간 **간트 차트**로 구성됩니다. |
+| **RAID** | 모든 프로젝트가 함께 쓰는 리스크·가정·이슈·의존성·결정 기록입니다. |
 
-**프로젝트 시트** (프로젝트마다 하나)
-| ID | 작업명 | 담당자 | 시작일 | 종료일 | 기간(일) | 진척률 | 상태 | 남은일수 | 비고 | | 주간 간트 차트 → |
-- 상태는 드롭다운(대기·진행중·완료·보류), 진척률은 0~100%, 날짜는 날짜만 입력되도록 검증합니다.
-- 종료일이 지났는데 완료되지 않은 작업은 빨간색, 완료된 작업은 초록색으로 표시됩니다.
-- 오른쪽 **간트 차트**: 프로젝트 기간을 주 단위로 나눠 각 작업 기간을 막대로 칠하고, 이번 주 열은 노란색으로 강조합니다.
+- 지연(빨강), 차단(주황), 완료(초록)를 색으로 구분합니다. 일정이 계획보다 5% 넘게 늦거나 기준일보다 밀리면 그 칸이 강조됩니다.
+- 상태·우선순위는 드롭다운으로, 진척률·날짜는 입력 검증으로 잘못된 값을 막습니다.
+- 양식을 이렇게 설계한 근거와 건강도 기준, 주간 운영 루틴은 **[docs/PM_GUIDE.md](docs/PM_GUIDE.md)**에 정리했습니다.
 
 ## 설치
 
@@ -56,18 +55,25 @@ python -m gtrack init --existing 1AbC...xyz
 python -m gtrack project add "웹사이트 개편" --owner 홍길동 --start 2026-10-01 --end 2026-12-31
 
 # 3) 작업 추가 (ID는 T-001, T-002 … 자동 부여)
-python -m gtrack task add "웹사이트 개편" "요구사항 정리" --owner 김철수 --start 2026-10-01 --end 2026-10-10
-python -m gtrack task add "웹사이트 개편" "디자인 시안" --owner 이영희 --start 2026-10-08 --end 2026-10-24 --note "2안 이상"
+python -m gtrack task add "웹사이트 개편" "요구사항 정리" --phase 1.기획 --owner 김철수 --priority 높음 --start 2026-10-01 --end 2026-10-10
+python -m gtrack task add "웹사이트 개편" "디자인 시안" --phase 2.디자인 --owner 이영희 --start 2026-10-08 --end 2026-10-24 --after T-001
+#    여러 건은 CSV로 한 번에 (UTF-8, 헤더: 단계,작업명,담당자,우선순위,상태,진척률,시작일,종료일,선행작업,비고)
+python -m gtrack task import "웹사이트 개편" tasks.csv
 
 # 4) 진척 갱신
 python -m gtrack task update "웹사이트 개편" T-001 --progress 60
-python -m gtrack task update "웹사이트 개편" T-001 --progress 100    # 상태가 자동으로 '완료'
-python -m gtrack task update "웹사이트 개편" T-002 --status 보류 --end 2026-10-31
+python -m gtrack task update "웹사이트 개편" T-001 --progress 100    # 자동으로 '완료' + 완료일 기록
+python -m gtrack task update "웹사이트 개편" T-002 --status 차단 --end 2026-10-31   # 기준종료일은 유지됨
 
-# 5) 조회
-python -m gtrack task list "웹사이트 개편"
-python -m gtrack project list
-python -m gtrack open                       # 스프레드시트 주소 출력
+# 5) 리스크·이슈 (RAID)
+python -m gtrack raid add "웹사이트 개편" 리스크 "결제 모듈 교체 지연 가능" --impact 높음 --action "대체 PG 검토" --related T-002
+python -m gtrack raid update R-001 --status 해결
+
+# 6) 조회
+python -m gtrack project list                       # 대시보드 (건강도 포함)
+python -m gtrack task list "웹사이트 개편" --open    # 미완료 작업만
+python -m gtrack raid list --open                    # 열린 RAID
+python -m gtrack open                                # 스프레드시트 주소
 
 # 프로젝트 삭제 (시트와 대시보드 행 모두 삭제)
 python -m gtrack project remove "웹사이트 개편"
@@ -79,7 +85,18 @@ python -m gtrack project remove "웹사이트 개편"
 - `--status 완료`만 주면 진척률도 100%로 맞춤
 - `--status`를 직접 주면 그 값이 우선
 
-시트에서 직접 셀을 고쳐도 됩니다. 단, 새 작업 행을 손으로 넣을 때는 기간·남은일수 수식을 위 행에서 복사하세요.
+시트에서 직접 셀을 고쳐도 됩니다. 단, 새 작업 행을 손으로 넣을 때는 회색 헤더(자동) 칸의 수식을 위 행에서 복사하세요.
+
+## PC를 켤 때 자동으로 열기 (Windows)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-startup.ps1             # 등록
+powershell -ExecutionPolicy Bypass -File scripts\install-startup.ps1 -Uninstall  # 해제
+```
+로그인하면 이 폴더에서 PowerShell 창이 열리고, 대시보드와 열린 RAID 목록을 보여줍니다.
+그 창에서는 `python -m gtrack` 대신 **`gtrack`**만 입력해도 됩니다. 예: `gtrack task list "<프로젝트>" --open`
+
+수동으로 열 때는 `scripts\start-gtrack.ps1`을 dot-source 합니다: `. .\scripts\start-gtrack.ps1`
 
 ## 공통 옵션
 
@@ -116,7 +133,7 @@ python -m pytest
 ```
 gtrack/
   layout.py   시트 구조·수식·서식 요청을 만드는 순수 함수
-  tracker.py  Sheets API 호출 (프로젝트/작업 추가·수정·조회·삭제)
+  tracker.py  Sheets API 호출 (프로젝트/작업/RAID 추가·수정·조회·삭제)
   auth.py     OAuth / 서비스 계정 인증
   cli.py      명령줄 인터페이스
 tests/        단위 테스트
