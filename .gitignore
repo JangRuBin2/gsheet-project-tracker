@@ -1,0 +1,11 @@
+# 인증 정보 — 절대 커밋하지 말 것 (docs/SECURITY.md)
+credentials.json
+client_secret*.json
+token*.json
+*service-account*.json
+.gtrack.json
+.env
+
+__pycache__/
+.pytest_cache/
+.venv/
