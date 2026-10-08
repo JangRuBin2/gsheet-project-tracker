@@ -90,13 +90,15 @@ python -m gtrack project remove "웹사이트 개편"
 ## PC를 켤 때 자동으로 열기 (Windows)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-startup.ps1             # 등록
-powershell -ExecutionPolicy Bypass -File scripts\install-startup.ps1 -Uninstall  # 해제
+powershell -ExecutionPolicy Bypass -File scripts\install-startup.ps1              # 등록: Claude Code 로 열기 (기본)
+powershell -ExecutionPolicy Bypass -File scripts\install-startup.ps1 -Mode gtrack # 등록: gtrack 대시보드로 열기
+powershell -ExecutionPolicy Bypass -File scripts\install-startup.ps1 -Uninstall   # 해제
 ```
-로그인하면 이 폴더에서 PowerShell 창이 열리고, 대시보드와 열린 RAID 목록을 보여줍니다.
-그 창에서는 `python -m gtrack` 대신 **`gtrack`**만 입력해도 됩니다. 예: `gtrack task list "<프로젝트>" --open`
+- **claude 모드**: 로그인하면 이 폴더에서 Claude Code가 열립니다. 저장소의 `gtrack` 스킬이 함께 로드되므로 "프로젝트 현황 보여줘"처럼 바로 요청할 수 있습니다.
+- **gtrack 모드**: 대시보드와 열린 RAID 목록을 보여줍니다.
+- 어느 모드든 열린 창에서는 `python -m gtrack` 대신 **`gtrack`**만 입력해도 됩니다. Claude Code를 종료한 뒤에도 마찬가지입니다.
 
-수동으로 열 때는 `scripts\start-gtrack.ps1`을 dot-source 합니다: `. .\scripts\start-gtrack.ps1`
+수동으로 열 때는 `scripts\start-gtrack.ps1`을 dot-source 합니다: `. .\scripts\start-gtrack.ps1 [-Claude]`
 
 ## 공통 옵션
 
