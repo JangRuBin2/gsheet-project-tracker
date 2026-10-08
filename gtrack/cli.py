@@ -161,6 +161,19 @@ def build_parser() -> argparse.ArgumentParser:
     p = raid.add_parser("list", help="RAID 목록")
     p.add_argument("project", nargs="?")
     p.add_argument("--open", action="store_true", help="해결/종료되지 않은 항목만")
+
+    git = sub.add_parser("git", help="git 저장소 커밋을 시트에 자동 반영").add_subparsers(dest="action", required=True)
+    p = git.add_parser("link", help="저장소를 프로젝트에 연결하고 hook 설치")
+    p.add_argument("--repo", required=True, help="git 저장소 경로")
+    p.add_argument("--project", required=True, help="대상 프로젝트(시트) 이름")
+    p.add_argument("--since", help="이 날짜 이후 커밋만 반영 (기본: 오늘)")
+    p = git.add_parser("sync", help="새 커밋을 시트에 반영 (hook 이 자동 실행)")
+    p.add_argument("--repo", help="저장소 경로 (생략 시 연결된 모든 저장소)")
+    p.add_argument("--dry-run", action="store_true", help="시트를 바꾸지 않고 결과만 보기")
+    p.add_argument("--quiet", action="store_true", help="hook 용: 브라우저 로그인 없이, 로그 형식으로 출력")
+    p = git.add_parser("unlink", help="hook 제거 및 연결 해제")
+    p.add_argument("--repo", required=True)
+    git.add_parser("list", help="연결된 저장소 목록")
     return parser
 
 
@@ -171,6 +184,74 @@ def _print_tasks(tasks: list[dict]) -> None:
           t["variance"], t["start"], t["end"], t["remaining"], t["slip"], t["after"]] for t in tasks],
         max_width=36,
     )
+
+
+def _python_exe() -> str:
+    return sys.executable
+
+
+def run_git(args, tracker: Tracker, service_factory) -> None:
+    from datetime import date, datetime
+
+    from . import gitsync
+
+    cfg = _load_config()
+    links = cfg.setdefault("git_sync", {})
+
+    if args.action == "list":
+        if not links:
+            print("연결된 저장소가 없습니다.")
+            return
+        print_table(["저장소", "프로젝트", "since", "경로 규칙", "scope 규칙"],
+                    [[k, v["project"], v.get("since", ""), len(v.get("paths", {})), len(v.get("scopes", {}))]
+                     for k, v in links.items()], max_width=60)
+        return
+
+    if args.action == "link":
+        key = gitsync.normalize_repo(args.repo)
+        tracker.service = service_factory()
+        tracker.list_tasks(args.project)  # 프로젝트 존재 확인
+        tracker.ensure_base_sheets()
+        entry = links.get(key, {})
+        entry.update({"path": args.repo, "project": args.project,
+                      "since": args.since or entry.get("since") or date.today().isoformat()})
+        entry.setdefault("paths", {})
+        entry.setdefault("scopes", {})
+        links[key] = entry
+        _save_config(cfg)
+        for h in gitsync.install_hooks(args.repo, _python_exe(), str(Path.cwd())):
+            print(f"hook 설치: {h}")
+        print(f"연결했습니다: {args.repo} → {args.project} (since {entry['since']})")
+        print("작업 연결 규칙(paths/scopes)은 .gtrack.json 에서 편집합니다. docs/GIT_SYNC.md 참고.")
+        return
+
+    if args.action == "unlink":
+        for h in gitsync.uninstall_hooks(args.repo):
+            print(f"hook 제거: {h}")
+        if links.pop(gitsync.normalize_repo(args.repo), None) is not None:
+            _save_config(cfg)
+            print("연결을 해제했습니다.")
+        return
+
+    # sync
+    targets = {gitsync.normalize_repo(args.repo): links.get(gitsync.normalize_repo(args.repo))} if args.repo else links
+    if not targets or None in targets.values():
+        raise TrackerError("연결된 저장소가 아닙니다. 먼저 'git link' 를 실행하세요.")
+    tracker.service = service_factory(interactive=not args.quiet)
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for key, rule in targets.items():
+        repo = rule.get("path", key)
+        with gitsync.file_lock(gitsync.git_dir(repo) / "gtrack-sync.lock"):
+            commits = [gitsync.match_tasks(c, rule) for c in gitsync.read_commits(repo, rule.get("since"))]
+            result = tracker.sync_commits(rule["project"], commits, dry_run=args.dry_run)
+        prefix = f"[{stamp}] " if args.quiet else ""
+        if not result:
+            print(f"{prefix}{repo}: 새 커밋 없음")
+            continue
+        print(f"{prefix}{repo} → {rule['project']}: 커밋 {len(result)}건{' (dry-run)' if args.dry_run else ''}")
+        for r in result:
+            print(f"{prefix}  {r['commit']} {r['subject'][:60]} | 작업: {', '.join(r['tasks']) or '-'}"
+                  f" | 반영: {', '.join(r['applied']) or '-'}")
 
 
 def run(args, service_factory) -> None:
@@ -190,6 +271,9 @@ def run(args, service_factory) -> None:
     tracker = Tracker(None, _spreadsheet_id(args))
     if args.cmd == "open":
         print(tracker.url)
+        return
+    if args.cmd == "git":
+        run_git(args, tracker, service_factory)
         return
     tracker.service = service_factory()
 
@@ -264,14 +348,14 @@ def main(argv=None) -> int:
         sys.stdout.reconfigure(encoding="utf-8")
     args = build_parser().parse_args(argv)
 
-    def service_factory():
+    def service_factory(interactive: bool = True):
         from .auth import build_service
 
-        return build_service(args.credentials, args.token)
+        return build_service(args.credentials, args.token, interactive=interactive)
 
     try:
         run(args, service_factory)
-    except (TrackerError, ValueError, FileNotFoundError) as e:
+    except (TrackerError, ValueError, FileNotFoundError, RuntimeError, TimeoutError) as e:
         print(f"오류: {e}", file=sys.stderr)
         return 1
     except Exception as e:  # googleapiclient.errors.HttpError 등

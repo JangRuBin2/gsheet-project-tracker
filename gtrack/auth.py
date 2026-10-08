@@ -13,13 +13,19 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SETUP_DOC = "docs/SETUP.md"
 
 
-def build_service(credentials_path: str | None = None, token_path: str = "token.json"):
+class LoginRequired(RuntimeError):
+    pass
+
+
+def build_service(credentials_path: str | None = None, token_path: str = "token.json", interactive: bool = True):
     from googleapiclient.discovery import build
 
-    return build("sheets", "v4", credentials=load_credentials(credentials_path, token_path), cache_discovery=False)
+    creds = load_credentials(credentials_path, token_path, interactive)
+    return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
 
-def load_credentials(credentials_path: str | None, token_path: str):
+def load_credentials(credentials_path: str | None, token_path: str, interactive: bool = True):
+    """interactive=False 면 브라우저 로그인이 필요한 경우 LoginRequired 를 던진다 (백그라운드 hook 용)."""
     key_file = Path(credentials_path or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "credentials.json")
     if not key_file.exists():
         raise FileNotFoundError(
@@ -62,7 +68,11 @@ def load_credentials(credentials_path: str | None, token_path: str):
             return creds
         except RefreshError:
             # 테스트 모드 앱은 refresh token 이 7일 후 만료된다 → 다시 로그인
-            print("로그인이 만료되어 다시 인증합니다. 브라우저에서 로그인해 주세요.")
+            if interactive:
+                print("로그인이 만료되어 다시 인증합니다. 브라우저에서 로그인해 주세요.")
+
+    if not interactive:
+        raise LoginRequired("구글 로그인이 필요합니다. 'python -m gtrack project list' 를 한 번 실행해 로그인하세요.")
 
     from google_auth_oauthlib.flow import InstalledAppFlow
 

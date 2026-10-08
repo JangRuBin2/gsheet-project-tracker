@@ -30,6 +30,9 @@ python -m gtrack <명령>
 | RAID 추가 | `python -m gtrack raid add "<프로젝트>" <리스크/가정/이슈/의존성/결정> "<내용>" [--impact 높음/보통/낮음] [--owner] [--action 대응방안] [--due] [--related T-001]` |
 | RAID 수정 | `python -m gtrack raid update R-001 [--status 열림/대응중/해결/종료] [--action] [--impact] [--owner] [--due] [--related] [--text] [--type]` |
 | RAID 목록 | `python -m gtrack raid list ["<프로젝트>"] [--open]` |
+| git 저장소 연결 (커밋 자동 반영) | `python -m gtrack git link --repo <경로> --project "<프로젝트>"` |
+| 커밋 지금 반영 / 미리보기 | `python -m gtrack git sync [--repo <경로>] [--dry-run]` |
+| 연결 목록 / 해제 | `python -m gtrack git list` / `python -m gtrack git unlink --repo <경로>` |
 | 시트 주소 | `python -m gtrack open` |
 | 시트 새로 만들기/연결 | `python -m gtrack init --title "<제목>"` / `python -m gtrack init --existing <ID>` |
 
@@ -43,6 +46,9 @@ python -m gtrack <명령>
 - 리스크·이슈·외부 의존성·중요한 결정이 대화에 나오면 RAID 등록을 제안한다.
 - 날짜를 모르는 작업은 날짜를 지어내지 말고 비워 둔다. 사용자에게 일정을 받아 나중에 채운다.
 - 양식의 의미와 운영 루틴은 `docs/PM_GUIDE.md`에 있다.
+- 연결된 저장소의 커밋은 hook이 자동으로 반영한다. 커밋 로그 시트에 기록되고 대기→진행중, 시작일, 완료 표시가 반영된다. 진척률은 자동으로 바뀌지 않는다.
+  - "작업 상태 맞춰줘" 같은 요청을 받으면 `git sync`를 먼저 실행하고, 커밋 로그를 보고 진척률 갱신을 제안한다.
+  - 커밋과 작업을 연결하는 규칙(paths/scopes)은 `.gtrack.json`의 `git_sync`에 있다. 새 작업을 추가할 때 해당 경로·scope 규칙도 추가한다. 형식은 `docs/GIT_SYNC.md`에 있다.
 - 프로젝트의 `--start`를 생략하면 오늘, `--end`를 생략하면 시작일+12주가 된다.
 - 날짜는 항상 `YYYY-MM-DD`로 쓴다. "다음 주 금요일"처럼 상대적인 날짜는 오늘 날짜를 기준으로 계산해서 넣는다.
 - 공통 옵션(`--id`, `--credentials`)은 하위 명령 **앞에** 쓴다. 예: `python -m gtrack --id <ID> project list`

@@ -9,7 +9,8 @@ from datetime import date, timedelta
 
 DASHBOARD = "대시보드"
 RAID = "RAID"
-RESERVED_SHEETS = (DASHBOARD, RAID)
+COMMIT_LOG = "커밋 로그"
+RESERVED_SHEETS = (DASHBOARD, RAID, COMMIT_LOG)
 MAX_ROWS = 500
 
 STATUSES = ["대기", "진행중", "차단", "완료", "보류"]
@@ -91,6 +92,20 @@ RAID_COLUMNS = [
 RAID_KEYS = [k for k, _ in RAID_COLUMNS]
 RAID_HEADERS = [h for _, h in RAID_COLUMNS]
 RCOL = {k: i for i, k in enumerate(RAID_KEYS)}
+COMMIT_COLUMNS = [
+    ("date", "일시"),
+    ("project", "프로젝트"),
+    ("branch", "브랜치"),
+    ("hash", "커밋"),
+    ("author", "작성자"),
+    ("subject", "메시지"),
+    ("tasks", "관련작업"),
+    ("applied", "시트 반영"),
+]
+COMMIT_KEYS = [k for k, _ in COMMIT_COLUMNS]
+COMMIT_HEADERS = [h for _, h in COMMIT_COLUMNS]
+KCOL = {k: i for i, k in enumerate(COMMIT_KEYS)}
+
 RAID_TYPES = ["리스크", "가정", "이슈", "의존성", "결정"]
 RAID_STATUSES = ["열림", "대응중", "해결", "종료"]
 RAID_CLOSED = ("해결", "종료")
@@ -554,4 +569,20 @@ def raid_sheet_requests(sheet_id: int, add_sheet: bool = True) -> list[dict]:
         _col_width(sheet_id, RCOL["project"], RCOL["project"] + 1, 160),
         _col_width(sheet_id, RCOL["text"], RCOL["text"] + 1, 320),
         _col_width(sheet_id, RCOL["action"], RCOL["action"] + 1, 260),
+    ]
+
+
+def commit_log_sheet_requests(sheet_id: int) -> list[dict]:
+    """git 커밋 기록 시트 (gtrack git sync 가 채운다)"""
+    return [
+        {"addSheet": {"properties": {
+            "sheetId": sheet_id, "title": COMMIT_LOG,
+            "gridProperties": {"rowCount": 2000, "columnCount": len(COMMIT_COLUMNS), "frozenRowCount": 1},
+        }}},
+        _header_row(sheet_id, COMMIT_HEADERS),
+        _col_width(sheet_id, KCOL["date"], KCOL["date"] + 1, 130),
+        _col_width(sheet_id, KCOL["project"], KCOL["project"] + 1, 160),
+        _col_width(sheet_id, KCOL["branch"], KCOL["branch"] + 1, 150),
+        _col_width(sheet_id, KCOL["subject"], KCOL["subject"] + 1, 420),
+        _col_width(sheet_id, KCOL["applied"], KCOL["applied"] + 1, 260),
     ]

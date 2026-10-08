@@ -5,8 +5,8 @@ import random
 from datetime import date, timedelta
 
 from .layout import (
-    COL, DASH_KEYS, DASHBOARD, DONE, RAID, RAID_KEYS, RCOL, RESERVED_SHEETS, TASK_KEYS, col_letter,
-    dashboard_format_requests, dashboard_row, derive_status, next_id, parse_date, parse_progress,
+    COL, COMMIT_KEYS, COMMIT_LOG, DASH_KEYS, DASHBOARD, DONE, KCOL, RAID, RAID_KEYS, RCOL, RESERVED_SHEETS,
+    TASK_KEYS, col_letter, commit_log_sheet_requests, dashboard_format_requests, dashboard_row, derive_status, next_id, parse_date, parse_progress,
     parse_task_refs, project_sheet_requests, quote_sheet, raid_row, raid_sheet_requests, task_row,
     validate_impact, validate_priority, validate_project_name, validate_raid_status, validate_raid_type,
     validate_status,
@@ -42,7 +42,9 @@ class Tracker:
             "sheets": [{"properties": {"sheetId": 0, "title": DASHBOARD}}],
         }).execute()
         tracker = cls(service, res["spreadsheetId"], today)
-        tracker._batch_update(dashboard_format_requests(0) + raid_sheet_requests(_new_sheet_id({DASHBOARD: 0})))
+        raid_id = _new_sheet_id({DASHBOARD: 0})
+        tracker._batch_update(dashboard_format_requests(0) + raid_sheet_requests(raid_id)
+                              + commit_log_sheet_requests(_new_sheet_id({DASHBOARD: 0, RAID: raid_id})))
         return tracker
 
     def ensure_base_sheets(self) -> list[str]:
@@ -55,8 +57,13 @@ class Tracker:
             requests += [{"addSheet": {"properties": {"sheetId": sid, "title": DASHBOARD}}}] + dashboard_format_requests(sid)
             created.append(DASHBOARD)
         if RAID not in sheets:
-            requests += raid_sheet_requests(_new_sheet_id(sheets))
+            sid = _new_sheet_id(sheets)
+            sheets[RAID] = sid
+            requests += raid_sheet_requests(sid)
             created.append(RAID)
+        if COMMIT_LOG not in sheets:
+            requests += commit_log_sheet_requests(_new_sheet_id(sheets))
+            created.append(COMMIT_LOG)
         if requests:
             self._batch_update(requests)
         return created
@@ -72,7 +79,7 @@ class Tracker:
             raise TrackerError("종료일이 시작일보다 빠릅니다.")
 
         sheets = self._sheet_map()
-        missing = [s for s in RESERVED_SHEETS if s not in sheets]
+        missing = [s for s in (DASHBOARD, RAID) if s not in sheets]
         if missing:
             raise TrackerError(f"{', '.join(missing)} 시트가 없습니다. 먼저 init 을 실행하세요.")
         if title in sheets:
@@ -297,6 +304,67 @@ class Tracker:
             raise TrackerError("변경할 항목이 없습니다.")
         self._write_cells(RAID, item["row"], {RCOL[k]: v for k, v in cells.items()})
         return {**item, **cells}
+
+    # ---------- git 커밋 연동 ----------
+
+    def sync_commits(self, project: str, commits: list, dry_run: bool = False) -> list[dict]:
+        """gitsync.Commit 목록(오래된 순, tasks/done 채워진 상태)을 시트에 반영한다.
+
+        - 커밋 로그 시트에 아직 없는 커밋만 처리한다(커밋 해시로 중복 제거).
+        - 상태 반영은 c.apply 의 작업만 한다 (c.tasks 는 로그용). 규칙은 gitsync.match_tasks 참고.
+        - 반영 대상 작업이 '대기'면 '진행중'으로, 시작일이 비어 있으면 첫 커밋 날짜로 채운다.
+        - 메시지에 완료 표시(T-018 완료 / closes T-018)가 있으면 완료 처리한다.
+        - '완료'·'보류'·'차단' 작업은 완료 표시가 없는 한 건드리지 않는다.
+        """
+        self._require_project(project)
+        if COMMIT_LOG not in self._sheet_map() and not dry_run:
+            self._batch_update(commit_log_sheet_requests(_new_sheet_id(self._sheet_map())))
+        logged = set(self._commit_hashes(project))
+        new = [c for c in commits if c.short not in logged]
+        if not new:
+            return []
+
+        tasks = {t["id"]: t for t in self._read_tasks(project)}
+        plan: dict[str, dict] = {}  # task_id -> changes
+        notes: dict[str, list[str]] = {c.short: [] for c in new}
+        for c in new:
+            for tid in c.apply:
+                t = tasks.get(tid)
+                if t is None:
+                    notes[c.short].append(f"{tid} 없음")
+                    continue
+                ch = plan.setdefault(tid, {})
+                status = ch.get("status", t["status"])
+                if tid in c.done and status != DONE:
+                    ch["status"] = DONE
+                    notes[c.short].append(f"{tid} 완료")
+                elif status == "대기":
+                    ch["status"] = "진행중"
+                    notes[c.short].append(f"{tid} 진행중")
+                if not t["start"] and "start" not in ch:
+                    ch["start"] = c.day
+                    notes[c.short].append(f"{tid} 시작일 {c.day}")
+
+        if not dry_run:
+            for tid, ch in plan.items():
+                if ch:
+                    self.update_task(project, tid, **ch)
+            ids = self._column_values(COMMIT_LOG, "A")
+            rows = [[c.date[:16].replace("T", " "), project, c.branch, c.short, c.author, c.subject,
+                     ", ".join(c.tasks), ", ".join(notes[c.short])] for c in new]
+            self.service.spreadsheets().values().update(
+                spreadsheetId=self.spreadsheet_id, range=f"{quote_sheet(COMMIT_LOG)}!A{len(ids) + 1}",
+                valueInputOption="RAW", body={"values": rows},
+            ).execute()
+        return [{"commit": c.short, "subject": c.subject, "tasks": c.tasks, "applied": notes[c.short]} for c in new]
+
+    def _commit_hashes(self, project: str) -> list[str]:
+        if COMMIT_LOG not in self._sheet_map():
+            return []
+        last = col_letter(len(COMMIT_KEYS) - 1)
+        rows = self._get_values(f"{quote_sheet(COMMIT_LOG)}!A2:{last}")
+        return [r[KCOL["hash"]] for r in rows
+                if len(r) > KCOL["hash"] and r[KCOL["project"]] == project]
 
     # ---------- 내부 ----------
 
