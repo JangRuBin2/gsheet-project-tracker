@@ -13,17 +13,23 @@ Google Sheets API로 **프로젝트마다 시트를 만들고 일정과 진척 �
 
 - 지연(빨강), 차단(주황), 완료(초록)를 색으로 구분합니다. 일정이 계획보다 5% 넘게 늦거나 기준일보다 밀리면 그 칸이 강조됩니다.
 - 상태·우선순위는 드롭다운으로, 진척률·날짜는 입력 검증으로 잘못된 값을 막습니다.
-- 양식을 이렇게 설계한 근거와 건강도 기준, 주간 운영 루틴은 **[docs/PM_GUIDE.md](docs/PM_GUIDE.md)**에 정리했습니다.
+- 양식을 이렇게 설계한 근거와 건강도 기준, 주간 운영 루틴은 **[skill/gtrack/references/PM_GUIDE.md](skill/gtrack/references/PM_GUIDE.md)**에 정리했습니다.
 
 ## 설치
 
 ```powershell
-python -m pip install -r requirements.txt
+powershell -ExecutionPolicy Bypass -File scripts\install-skill.ps1
 ```
+이 스크립트가 두 가지를 설치합니다.
+- **`gtrack` 명령**(`pip install -e .`): 어느 폴더에서나 `gtrack project list`처럼 실행할 수 있습니다.
+- **Claude Code 전역 스킬**: `~/.claude/skills/gtrack`을 이 저장소의 `skill/gtrack`에 연결합니다.
+
+설정 파일(`.gtrack.json`)과 인증 파일(`credentials.json`, `token.json`)은 실행한 위치와 관계없이 **이 저장소 폴더**에서 읽습니다. 다른 폴더를 쓰려면 `GTRACK_HOME` 환경변수로 지정합니다.
+해제하려면 `scripts\install-skill.ps1 -Uninstall`을 실행합니다.
 
 ## Google 인증 설정 (최초 1회)
 
-👉 **[docs/SETUP.md](docs/SETUP.md)** 를 따라 하세요. 단계는 다음과 같습니다.
+👉 **[skill/gtrack/references/SETUP.md](skill/gtrack/references/SETUP.md)** 를 따라 하세요. 단계는 다음과 같습니다.
 - Sheets API 사용 설정
 - OAuth 동의 화면 설정
 - **테스트 사용자 추가**
@@ -32,16 +38,19 @@ python -m pip install -r requirements.txt
 
 자주 나는 오류(403 access_denied, 7일 후 재로그인 등)와 다른 사람과 함께 쓰는 방법도 같은 문서에 있습니다.
 
-🔒 `credentials.json`, `token.json` 등 비밀 파일 관리와 유출 시 대처는 **[docs/SECURITY.md](docs/SECURITY.md)** 를 참고하세요.
+🔒 `credentials.json`, `token.json` 등 비밀 파일 관리와 유출 시 대처는 **[skill/gtrack/references/SECURITY.md](skill/gtrack/references/SECURITY.md)** 를 참고하세요.
 
 ## Claude Code 스킬
 
-`.claude/skills/gtrack/SKILL.md`에 스킬이 들어 있습니다. 이 폴더에서 Claude Code를 실행하고 다음처럼 말로 요청하면 알맞은 명령을 대신 실행합니다.
+스킬과 문서는 `skill/gtrack/`에 함께 들어 있습니다.
+- `SKILL.md`
+- `references/` 아래 문서: `SETUP.md`, `SECURITY.md`, `PM_GUIDE.md`, `GIT_SYNC.md`
+
+전역으로 설치하면 **어느 프로젝트 폴더에서 연 Claude Code에서든** 쓸 수 있습니다. `/gtrack <요청>`으로 부르거나 그냥 말로 요청하면 됩니다.
+- `/gtrack 프로젝트 현황 보여줘`
 - "웹사이트 개편에 디자인 작업 추가해줘, 10/20까지"
 - "T-003 완료 처리해줘"
-- "프로젝트 현황 보여줘"
-
-`/gtrack`으로 직접 부를 수도 있습니다.
+- (연결된 저장소에서 작업 중일 때) "시트 업데이트해줘" → 커밋을 반영하고 진척률 갱신을 제안합니다.
 
 ## 사용법
 
@@ -98,7 +107,7 @@ python -m gtrack git link --repo D:/work/my-app --project "웹사이트 개편"
 - 비어 있는 시작일이 첫 커밋 날짜로 채워집니다.
 - 메시지에 `T-018 완료`가 있으면 완료 처리됩니다.
 
-커밋 메시지의 작업 ID, `(scope)`, 변경 파일 경로로 작업을 찾습니다. 자세한 내용은 **[docs/GIT_SYNC.md](docs/GIT_SYNC.md)**를 참고하세요.
+커밋 메시지의 작업 ID, `(scope)`, 변경 파일 경로로 작업을 찾습니다. 자세한 내용은 **[skill/gtrack/references/GIT_SYNC.md](skill/gtrack/references/GIT_SYNC.md)**를 참고하세요.
 
 ## PC를 켤 때 자동으로 열기 (Windows)
 

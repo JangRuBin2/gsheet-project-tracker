@@ -1,4 +1,4 @@
-# 인증 정보 — 절대 커밋하지 말 것 (docs/SECURITY.md)
+# 인증 정보 — 절대 커밋하지 말 것 (skill/gtrack/references/SECURITY.md)
 credentials.json
 client_secret*.json
 token*.json
@@ -9,3 +9,5 @@ token*.json
 __pycache__/
 .pytest_cache/
 .venv/
+*.egg-info/
+build/

@@ -1,6 +1,6 @@
 """시트 구조(헤더·수식·서식)를 만드는 순수 함수 모음. API 호출 없음.
 
-양식 설계 근거는 docs/PM_GUIDE.md 참고.
+양식 설계 근거는 skill/gtrack/references/PM_GUIDE.md 참고.
 """
 from __future__ import annotations
 

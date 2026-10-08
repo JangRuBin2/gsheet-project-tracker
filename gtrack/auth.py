@@ -1,7 +1,7 @@
 """인증: OAuth 데스크톱 클라이언트(credentials.json) 또는 서비스 계정 키 둘 다 지원.
 
 credentials.json / token.json 에는 비밀값이 들어 있으므로 내용을 출력하거나 로그로 남기지 않는다.
-설정 방법은 docs/SETUP.md 참고.
+설정 방법은 skill/gtrack/references/SETUP.md 참고.
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-SETUP_DOC = "docs/SETUP.md"
+SETUP_DOC = "skill/gtrack/references/SETUP.md"
 
 
 class LoginRequired(RuntimeError):

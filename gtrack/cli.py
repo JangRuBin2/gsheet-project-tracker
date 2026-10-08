@@ -22,7 +22,10 @@ from pathlib import Path
 from .layout import PRIORITIES, RAID_STATUSES, RAID_TYPES, STATUSES
 from .tracker import Tracker, TrackerError
 
-CONFIG_FILE = Path(".gtrack.json")
+# 설정·인증 파일을 두는 폴더. 어느 폴더에서 실행해도 같은 파일을 쓴다.
+# 기본은 이 저장소 루트(gtrack 패키지의 상위 폴더), GTRACK_HOME 환경변수로 바꿀 수 있다.
+HOME = Path(os.environ.get("GTRACK_HOME") or Path(__file__).resolve().parent.parent)
+CONFIG_FILE = HOME / ".gtrack.json"
 IMPORT_FIELDS = ["phase", "name", "owner", "priority", "status", "progress", "start", "end", "after", "note"]
 IMPORT_HEADER_ALIASES = {
     "단계": "phase", "작업명": "name", "담당자": "owner", "우선순위": "priority", "상태": "status",
@@ -98,8 +101,8 @@ def _task_fields(p: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="gtrack", description="Google Sheets 프로젝트 일정·진척 관리")
-    parser.add_argument("--credentials", help="credentials.json 경로 (기본: ./credentials.json)")
-    parser.add_argument("--token", default="token.json", help="OAuth 토큰 저장 경로")
+    parser.add_argument("--credentials", help=f"인증 파일 경로 (기본: {HOME / 'credentials.json'})")
+    parser.add_argument("--token", default=str(HOME / "token.json"), help="OAuth 토큰 저장 경로")
     parser.add_argument("--id", help="스프레드시트 ID (기본: .gtrack.json)")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -219,10 +222,10 @@ def run_git(args, tracker: Tracker, service_factory) -> None:
         entry.setdefault("scopes", {})
         links[key] = entry
         _save_config(cfg)
-        for h in gitsync.install_hooks(args.repo, _python_exe(), str(Path.cwd())):
+        for h in gitsync.install_hooks(args.repo, _python_exe(), str(HOME)):
             print(f"hook 설치: {h}")
         print(f"연결했습니다: {args.repo} → {args.project} (since {entry['since']})")
-        print("작업 연결 규칙(paths/scopes)은 .gtrack.json 에서 편집합니다. docs/GIT_SYNC.md 참고.")
+        print("작업 연결 규칙(paths/scopes)은 .gtrack.json 에서 편집합니다. skill/gtrack/references/GIT_SYNC.md 참고.")
         return
 
     if args.action == "unlink":
@@ -351,7 +354,8 @@ def main(argv=None) -> int:
     def service_factory(interactive: bool = True):
         from .auth import build_service
 
-        return build_service(args.credentials, args.token, interactive=interactive)
+        creds = args.credentials or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or str(HOME / "credentials.json")
+        return build_service(creds, args.token, interactive=interactive)
 
     try:
         run(args, service_factory)

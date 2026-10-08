@@ -7,7 +7,7 @@
   scopes  : {"search": "T-018"}      커밋 제목 끝 "(scope)" 의 scope 가 같으면 연결
 커밋 메시지에 T-018 처럼 ID 를 직접 쓰면 항상 연결되고,
 "T-018 완료" / "closes T-018" / "done T-018" 이면 그 작업을 완료 처리한다.
-자세한 내용은 docs/GIT_SYNC.md 참고.
+자세한 내용은 skill/gtrack/references/GIT_SYNC.md 참고.
 """
 from __future__ import annotations
 

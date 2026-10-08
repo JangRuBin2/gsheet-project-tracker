@@ -19,7 +19,7 @@ $script:GtrackPython = @(
 ) | Where-Object { $_ } | Select-Object -First 1
 
 if (-not $script:GtrackPython) {
-    Write-Host 'Python 을 찾을 수 없습니다. docs/SETUP.md 의 0단계를 참고해 설치하세요.' -ForegroundColor Red
+    Write-Host 'Python 을 찾을 수 없습니다. skill/gtrack/references/SETUP.md 의 0단계를 참고해 설치하세요.' -ForegroundColor Red
     return
 }
 
@@ -43,7 +43,7 @@ Write-Host "  $(Get-Location)" -ForegroundColor DarkGray
 Write-Host ''
 
 if (-not (Test-Path credentials.json)) {
-    Write-Host '  credentials.json 이 없습니다. docs/SETUP.md 를 참고해 인증을 설정하세요.' -ForegroundColor Yellow
+    Write-Host '  credentials.json 이 없습니다. skill/gtrack/references/SETUP.md 를 참고해 인증을 설정하세요.' -ForegroundColor Yellow
 } elseif (-not (Test-Path .gtrack.json)) {
     Write-Host "  연결된 스프레드시트가 없습니다. 'gtrack init' 을 실행하세요." -ForegroundColor Yellow
 } else {
