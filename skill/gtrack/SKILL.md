@@ -1,12 +1,18 @@
 ---
 name: gtrack
-description: 구글 시트 프로젝트 일정·진척 관리 (전역 스킬, 어느 폴더에서나 사용). 프로젝트(시트) 추가·삭제, 작업 추가·일괄 등록, 진척률·상태·일정·선행작업 수정, 리스크·이슈(RAID) 기록, git 커밋 자동 반영, 프로젝트 현황·건강도 조회를 gtrack CLI로 처리한다. "프로젝트 추가해줘", "작업 넣어줘", "진척률 60%로", "T-003 완료 처리", "지연된 작업 보여줘", "프로젝트 현황", "일정 바꿔줘", "리스크 등록해줘", "이슈 해결 처리", "시트 업데이트해줘" 같은 요청이나 /gtrack 호출 시 사용.
+description: 구글 시트 프로젝트 일정·진척 관리 (전역 스킬, 어느 폴더에서나 사용). 프로젝트(전용 스프레드시트 파일) 추가·삭제·분리, 작업 추가·일괄 등록, 진척률·상태·일정·선행작업 수정, 리스크·이슈(RAID) 기록, git 커밋 자동 반영, 프로젝트 현황·건강도 조회를 gtrack CLI로 처리한다. "프로젝트 추가해줘", "작업 넣어줘", "진척률 60%로", "T-003 완료 처리", "지연된 작업 보여줘", "프로젝트 현황", "일정 바꿔줘", "리스크 등록해줘", "이슈 해결 처리", "시트 업데이트해줘" 같은 요청이나 /gtrack 호출 시 사용.
 ---
 
 # gtrack — 구글 시트 프로젝트 관리
 
 `gtrack` CLI로 구글 스프레드시트의 프로젝트·작업·RAID를 관리한다.
-**어느 폴더에서 실행해도** 같은 스프레드시트와 인증 파일을 쓴다. 이 파일들은 gtrack 설치 폴더에 있다.
+**어느 폴더에서 실행해도** 같은 설정(`.gtrack.json`)과 인증 파일을 쓴다. 이 파일들은 gtrack 설치 폴더에 있다.
+
+**프로젝트마다 스프레드시트 파일이 따로 있다.**
+- 파일 하나에 대시보드·RAID·커밋 로그·프로젝트 시트가 들어 있다.
+- `.gtrack.json`의 `projects`(프로젝트 이름 → 스프레드시트 ID)로 파일을 찾는다. 명령에 프로젝트 이름만 주면 된다.
+- `project list`, `raid list`(프로젝트 생략), `open`은 모든 파일을 모아서 보여 준다.
+- `spreadsheet_id`(공용 파일)는 예전 방식이다. `projects`에 없는 프로젝트만 거기서 찾는다.
 
 이 스킬 폴더의 `references/`에 문서가 있다. 필요할 때 읽는다.
 | 문서 | 내용 |
@@ -29,24 +35,29 @@ gtrack <명령>
 | 하려는 일 | 명령 |
 |---|---|
 | 프로젝트 현황(대시보드) | `gtrack project list` |
-| 프로젝트 추가 | `gtrack project add "<이름>" [--owner PM] [--start YYYY-MM-DD] [--end YYYY-MM-DD]` |
+| 프로젝트 추가 (새 스프레드시트 파일 생성) | `gtrack project add "<이름>" [--owner PM] [--start YYYY-MM-DD] [--end YYYY-MM-DD]` |
+| 이미 있는 프로젝트 파일 연결 (공유받은 파일 등) | `gtrack project link "<이름>" <스프레드시트ID>` |
+| 공용 파일의 프로젝트를 전용 파일로 분리 | `gtrack project split "<이름>"` (원본 시트는 남는다) |
 | 프로젝트 삭제 | `gtrack project remove "<이름>" --yes` |
 | 작업 목록 | `gtrack task list "<프로젝트>" [--open]` |
 | 작업 추가 | `gtrack task add "<프로젝트>" "<작업명>" [--phase] [--owner] [--priority 높음/보통/낮음] [--start] [--end] [--progress 0-100] [--status] [--after T-001,T-002] [--note]` |
 | 작업 수정 | `gtrack task update "<프로젝트>" T-001 [--name] [위와 같은 옵션]` |
 | 작업 일괄 추가 | `gtrack task import "<프로젝트>" <파일.csv>` |
 | RAID 추가 | `gtrack raid add "<프로젝트>" <리스크/가정/이슈/의존성/결정> "<내용>" [--impact 높음/보통/낮음] [--owner] [--action 대응방안] [--due] [--related T-001]` |
-| RAID 수정 | `gtrack raid update R-001 [--status 열림/대응중/해결/종료] [--action] [--impact] [--owner] [--due] [--related] [--text] [--type]` |
+| RAID 수정 | `gtrack raid update R-001 [--project "<프로젝트>"] [--status 열림/대응중/해결/종료] [--action] [--impact] [--owner] [--due] [--related] [--text] [--type]` |
 | RAID 목록 | `gtrack raid list ["<프로젝트>"] [--open]` |
 | git 저장소 연결 (커밋 자동 반영) | `gtrack git link --repo <경로> --project "<프로젝트>"` |
 | 커밋 지금 반영 / 미리보기 | `gtrack git sync [--repo <경로>] [--dry-run]` |
 | 연결 목록 / 해제 | `gtrack git list` / `gtrack git unlink --repo <경로>` |
-| 시트 주소 | `gtrack open` |
-| 시트 새로 만들기/연결 | `gtrack init --title "<제목>"` / `gtrack init --existing <ID>` |
+| 파일 주소 | `gtrack open ["<프로젝트>"]` (생략 시 모든 프로젝트 파일) |
+| 공용 파일 만들기/연결 (예전 방식, 보통 쓰지 않음) | `gtrack init --title "<제목>"` / `gtrack init --existing <ID>` |
 
 - 상태 값은 `대기`, `진행중`, `차단`, `완료`, `보류` 중 하나다. '지연'은 입력하는 값이 아니다. 종료일이 지났는데 끝나지 않으면 자동으로 지연으로 표시된다.
 - 진척률을 100으로 하면 상태가 자동으로 `완료`가 되고 완료일이 기록된다. `--status 완료`만 주면 진척률도 100%가 된다.
 - 종료일을 바꿔도 **기준종료일**은 그대로 남는다. 차이는 '일정변경(일)'에 자동으로 표시된다. 일정이 밀리면 종료일만 바꾼다.
+- 프로젝트를 추가하면 프로젝트 이름으로 **새 스프레드시트 파일**이 만들어진다. 기존 파일에 시트로 넣으려면 `gtrack --id <ID> project add ...`를 쓴다.
+- RAID ID는 파일(프로젝트)마다 R-001부터 따로 매겨진다. `raid update`에서 같은 ID가 여러 프로젝트에 있으면 `--project`를 준다.
+- `project remove`는 시트와 `projects` 연결만 지운다. 스프레드시트 파일은 드라이브에 남는다. 권한이 spreadsheets 범위뿐이라 파일은 지울 수 없으므로, 사용자에게 드라이브에서 직접 지우라고 안내한다.
 - 프로젝트의 `--start`를 생략하면 오늘, `--end`를 생략하면 시작일+12주가 된다.
 - 날짜는 항상 `YYYY-MM-DD`로 쓴다. "다음 주 금요일"처럼 상대적인 날짜는 오늘 날짜를 기준으로 계산해서 넣는다.
 - 날짜를 모르는 작업은 날짜를 지어내지 말고 비워 둔다. 사용자에게 일정을 받아 나중에 채운다.
@@ -92,5 +103,5 @@ gtrack <명령>
 | `인증 파일이 없습니다` / `데스크톱 앱 유형이 아닙니다` | `references/SETUP.md`의 4단계를 안내한다. |
 | `403 access_denied`, "인증 절차를 완료하지 않았습니다" | 로그인 계정을 테스트 사용자로 추가해야 한다. `references/SETUP.md`의 3단계를 안내한다. |
 | 브라우저 로그인이 필요함 (첫 실행, 7일 후 토큰 만료) | 명령을 백그라운드로 실행하고 `$env:PYTHONUNBUFFERED=1`로 출력 버퍼링을 끈다. 출력된 인증 URL을 사용자에게 전달하고, 로그인을 마칠 때까지 기다린다. 로그인 후 `gtrack git sync`로 밀린 커밋을 반영한다. |
-| `스프레드시트가 지정되지 않았습니다` | `init`을 먼저 실행하거나 `--id`를 준다. |
+| `스프레드시트가 지정되지 않았습니다` | 그 이름의 프로젝트가 `projects`에 없다. `gtrack open`으로 이름을 확인하거나 `project add`로 만든다. |
 | `Google API 오류: 403 ... permission` | 로그인 계정에 그 시트의 편집 권한이 없다. 사용자에게 공유 설정을 확인하게 한다. |

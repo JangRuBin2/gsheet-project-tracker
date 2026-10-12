@@ -57,10 +57,10 @@ https://console.cloud.google.com/auth/clients/create?project=gsheet-project-trac
 
 > 🔒 이 파일에는 비밀값(client secret)이 들어 있습니다. 메신저나 메일로 보내거나 git에 올리지 마세요. ([SECURITY.md](SECURITY.md))
 
-## 5. 첫 로그인 + 스프레드시트 만들기
+## 5. 첫 로그인 + 첫 프로젝트 만들기
 
 ```powershell
-python -m gtrack init --title "2026 프로젝트 관리"
+python -m gtrack project add "웹사이트 개편"
 ```
 
 1. 브라우저가 열리면 **3단계에서 등록한 계정**을 선택합니다.
@@ -70,11 +70,12 @@ python -m gtrack init --title "2026 프로젝트 관리"
 
 로그인에 성공하면 다음 두 파일이 생깁니다.
 - `token.json`: 로그인 토큰입니다. 다음부터는 로그인 없이 실행됩니다.
-- `.gtrack.json`: 사용할 스프레드시트 ID입니다.
+- `.gtrack.json`: 프로젝트별 스프레드시트 ID(`projects`)입니다.
 
-이미 있는 스프레드시트를 쓰려면 아래처럼 연결합니다. 스프레드시트 ID는 URL의 `/d/`와 `/edit` 사이 문자열입니다.
+프로젝트마다 스프레드시트 파일이 따로 만들어집니다. 이미 있는 프로젝트 파일을 쓰려면 아래처럼 연결합니다.
+스프레드시트 ID는 URL의 `/d/`와 `/edit` 사이 문자열입니다.
 ```powershell
-python -m gtrack init --existing 1AbC...xyz
+python -m gtrack project link "웹사이트 개편" 1AbC...xyz
 ```
 
 ---
@@ -97,9 +98,9 @@ python -m gtrack init --existing 1AbC...xyz
 - **시트만 같이 보거나 수정하려는 경우**: 구글 시트의 **공유** 버튼으로 초대하면 됩니다. 그 사람은 이 도구를 설치하지 않아도 됩니다.
 - **그 사람도 이 도구(명령어)를 쓰려는 경우**:
   1. 3단계에서 그 사람의 Gmail을 테스트 사용자로 추가합니다.
-  2. 시트를 그 사람에게 편집자로 공유합니다.
+  2. 함께 쓸 프로젝트 파일을 그 사람에게 편집자로 공유합니다. 파일이 프로젝트마다 따로 있어서 프로젝트별로 공유 대상을 정할 수 있습니다.
   3. `credentials.json`은 보안 채널로 전달하거나, 그 사람이 자기 Google Cloud 프로젝트에서 직접 만들게 합니다.
-  4. 그 사람 PC에서 `init --existing <스프레드시트ID>`를 실행합니다.
+  4. 그 사람 PC에서 프로젝트마다 `project link "<프로젝트>" <스프레드시트ID>`를 실행합니다.
   - `token.json`은 **절대 공유하지 마세요.** 계정마다 각자 로그인해서 만들어야 합니다.
 
 ## (선택) 서비스 계정으로 자동화
@@ -108,4 +109,4 @@ python -m gtrack init --existing 1AbC...xyz
 
 1. https://console.cloud.google.com/iam-admin/serviceaccounts 에서 서비스 계정을 만들고 **키 추가 → JSON**을 받습니다.
 2. 받은 파일을 `credentials.json`으로 두거나 `--credentials 경로`로 지정합니다.
-3. 서비스 계정이 만든 파일은 내 드라이브에 보이지 않습니다. 그래서 **내가 만든 스프레드시트를 서비스 계정 이메일(`...@...iam.gserviceaccount.com`)에 편집자로 공유**한 뒤 `init --existing <ID>`로 연결합니다.
+3. 서비스 계정이 만든 파일은 내 드라이브에 보이지 않습니다. 그래서 **내가 만든 스프레드시트를 서비스 계정 이메일(`...@...iam.gserviceaccount.com`)에 편집자로 공유**한 뒤 `project link "<프로젝트>" <ID>`로 연결합니다.

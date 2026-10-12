@@ -58,6 +58,11 @@ class FakeSheets:
                         for j, cell in enumerate(row["values"]):
                             v = next(iter(cell["userEnteredValue"].values()))
                             self.set_cell(title, u["range"]["startRowIndex"] + i, u["range"]["startColumnIndex"] + j, v)
+                elif "updateSheetProperties" in r:
+                    props = r["updateSheetProperties"]["properties"]
+                    old = next(t for t, s in self.sheets.items() if s["id"] == props["sheetId"])
+                    if "title" in props:
+                        self.sheets = {props["title"] if t == old else t: s for t, s in self.sheets.items()}
                 elif "deleteSheet" in r:
                     sid = r["deleteSheet"]["sheetId"]
                     self.sheets = {t: s for t, s in self.sheets.items() if s["id"] != sid}
@@ -105,4 +110,50 @@ class _Values:
             for d in body["data"]:
                 self.update(spreadsheetId, d["range"], body["valueInputOption"], {"values": d["values"]}).execute()
             return {}
+        return _Call(run)
+
+
+class FakeDrive:
+    """스프레드시트 여러 개. spreadsheetId 로 FakeSheets 를 골라 호출을 넘긴다."""
+
+    def __init__(self):
+        self.files: dict[str, FakeSheets] = {}
+
+    def spreadsheets(self):
+        return self
+
+    def create(self, body):
+        def run():
+            sid = f"FILE{len(self.files) + 1}"
+            self.files[sid] = FakeSheets()
+            self.files[sid].create(body).execute()
+            return {"spreadsheetId": sid}
+        return _Call(run)
+
+    def get(self, spreadsheetId, **kw):
+        return self.files[spreadsheetId].get(spreadsheetId, **kw)
+
+    def batchUpdate(self, spreadsheetId, body):
+        return self.files[spreadsheetId].batchUpdate(spreadsheetId, body)
+
+    def values(self):
+        drive = self
+
+        class _Route:
+            def __getattr__(self, name):
+                return lambda spreadsheetId, **kw: getattr(
+                    drive.files[spreadsheetId].values(), name)(spreadsheetId=spreadsheetId, **kw)
+        return _Route()
+
+    def sheets(self):
+        return self
+
+    def copyTo(self, spreadsheetId, sheetId, body):
+        def run():
+            src = self.files[spreadsheetId]
+            dest = self.files[body["destinationSpreadsheetId"]]
+            title, sheet = next((t, s) for t, s in src.sheets.items() if s["id"] == sheetId)
+            new_id = max((s["id"] for s in dest.sheets.values()), default=0) + 1
+            dest.sheets[f"Copy of {title}"] = {"id": new_id, "rows": [list(r) for r in sheet["rows"]]}
+            return {"sheetId": new_id, "title": f"Copy of {title}"}
         return _Call(run)

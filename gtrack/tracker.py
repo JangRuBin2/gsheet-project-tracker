@@ -98,6 +98,35 @@ class Tracker:
         rows = self._get_values(f"{quote_sheet(DASHBOARD)}!A2:{col_letter(len(DASH_KEYS) - 1)}")
         return [_record(DASH_KEYS, r) for r in rows if r and r[0]]
 
+    def copy_project(self, name: str, dest: "Tracker") -> dict:
+        """프로젝트 시트·대시보드 행·RAID·커밋 로그를 dest 스프레드시트로 복사한다. 원본은 그대로 둔다.
+        dest 는 Tracker.create 로 막 만든 빈 파일이어야 한다."""
+        self._require_project(name)
+        project = next((p for p in self.list_projects() if p["name"] == name), None)
+        if project is None:
+            raise TrackerError(f"대시보드에 프로젝트 행이 없습니다: {name}")
+        if name in dest._sheet_map():
+            raise TrackerError(f"대상 파일에 이미 같은 시트가 있습니다: {name}")
+
+        copied = self.service.spreadsheets().sheets().copyTo(
+            spreadsheetId=self.spreadsheet_id, sheetId=self._sheet_map()[name],
+            body={"destinationSpreadsheetId": dest.spreadsheet_id}).execute()
+        sheet_id = copied["sheetId"]
+        dest._batch_update([{"updateSheetProperties": {
+            "properties": {"sheetId": sheet_id, "title": name, "index": 1}, "fields": "title,index"}}])
+        dest._write_row(DASHBOARD, 2, dashboard_row(2, {**project, "sheet_id": sheet_id}))
+
+        raid = [raid_row(i) for i in self.list_raid(name)]
+        if raid:
+            dest._write_rows(RAID, 2, raid)
+        commits = []
+        if COMMIT_LOG in self._sheet_map():
+            rows = self._get_values(f"{quote_sheet(COMMIT_LOG)}!A2:{col_letter(len(COMMIT_KEYS) - 1)}")
+            commits = [r for r in rows if len(r) > KCOL["project"] and r[KCOL["project"]] == name]
+            if commits:
+                dest._write_rows(COMMIT_LOG, 2, commits, input_option="RAW")
+        return {**project, "sheet_id": sheet_id, "raid": len(raid), "commits": len(commits)}
+
     def remove_project(self, name: str) -> None:
         sheets = self._sheet_map()
         if name in RESERVED_SHEETS or name not in sheets:
@@ -176,10 +205,7 @@ class Tracker:
             rows.append(task_row(row0 + len(rows), task))
             out.append(task)
         if rows:
-            self.service.spreadsheets().values().update(
-                spreadsheetId=self.spreadsheet_id, range=f"{quote_sheet(project)}!A{row0}",
-                valueInputOption="USER_ENTERED", body={"values": rows},
-            ).execute()
+            self._write_rows(project, row0, rows)
         return out
 
     def update_task(self, project: str, task_id: str, **changes) -> dict:
@@ -352,10 +378,7 @@ class Tracker:
             ids = self._column_values(COMMIT_LOG, "A")
             rows = [[c.date[:16].replace("T", " "), project, c.branch, c.short, c.author, c.subject,
                      ", ".join(c.tasks), ", ".join(notes[c.short])] for c in new]
-            self.service.spreadsheets().values().update(
-                spreadsheetId=self.spreadsheet_id, range=f"{quote_sheet(COMMIT_LOG)}!A{len(ids) + 1}",
-                valueInputOption="RAW", body={"values": rows},
-            ).execute()
+            self._write_rows(COMMIT_LOG, len(ids) + 1, rows, input_option="RAW")
         return [{"commit": c.short, "subject": c.subject, "tasks": c.tasks, "applied": notes[c.short]} for c in new]
 
     def _commit_hashes(self, project: str) -> list[str]:
@@ -405,6 +428,12 @@ class Tracker:
             range=f"{quote_sheet(sheet)}!A{row}",
             valueInputOption="USER_ENTERED",
             body={"values": [values]},
+        ).execute()
+
+    def _write_rows(self, sheet: str, row0: int, rows: list[list], input_option: str = "USER_ENTERED") -> None:
+        self.service.spreadsheets().values().update(
+            spreadsheetId=self.spreadsheet_id, range=f"{quote_sheet(sheet)}!A{row0}",
+            valueInputOption=input_option, body={"values": rows},
         ).execute()
 
     def _write_cells(self, sheet: str, row: int, cells: dict[int, object]) -> None:

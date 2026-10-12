@@ -55,14 +55,14 @@ powershell -ExecutionPolicy Bypass -File scripts\install-skill.ps1
 ## 사용법
 
 ```powershell
-# 1) 관리용 스프레드시트 만들기 (ID는 .gtrack.json 에 저장됨)
-python -m gtrack init --title "2026 프로젝트 관리"
-#    또는 기존 스프레드시트 연결 (URL의 /d/ 와 /edit 사이 문자열)
-python -m gtrack init --existing 1AbC...xyz
-
-# 2) 프로젝트 추가 → 시트가 생성되고 대시보드에 한 줄 추가됨
+# 1) 프로젝트 추가 → 프로젝트 이름으로 스프레드시트 파일이 새로 만들어짐
+#    (대시보드·RAID·커밋 로그·프로젝트 시트 포함. 프로젝트→파일 ID 는 .gtrack.json 의 projects 에 저장)
 #    --start 생략 시 오늘, --end 생략 시 시작일+12주
 python -m gtrack project add "웹사이트 개편" --owner 홍길동 --start 2026-10-01 --end 2026-12-31
+#    기존 파일에 시트로 넣으려면: python -m gtrack --id 1AbC...xyz project add "웹사이트 개편"
+
+# 2) (예전 방식) 공용 파일 하나에 여러 프로젝트를 모아 둔 경우 → 프로젝트별 파일로 분리
+python -m gtrack project split "웹사이트 개편"     # 원본 시트는 남는다. 확인 후 직접 지운다
 
 # 3) 작업 추가 (ID는 T-001, T-002 … 자동 부여)
 python -m gtrack task add "웹사이트 개편" "요구사항 정리" --phase 1.기획 --owner 김철수 --priority 높음 --start 2026-10-01 --end 2026-10-10
@@ -77,15 +77,15 @@ python -m gtrack task update "웹사이트 개편" T-002 --status 차단 --end 2
 
 # 5) 리스크·이슈 (RAID)
 python -m gtrack raid add "웹사이트 개편" 리스크 "결제 모듈 교체 지연 가능" --impact 높음 --action "대체 PG 검토" --related T-002
-python -m gtrack raid update R-001 --status 해결
+python -m gtrack raid update R-001 --status 해결   # RAID ID 는 프로젝트(파일)마다 따로. 겹치면 --project 지정
 
 # 6) 조회
-python -m gtrack project list                       # 대시보드 (건강도 포함)
+python -m gtrack project list                       # 모든 프로젝트 파일의 대시보드 (건강도 포함)
 python -m gtrack task list "웹사이트 개편" --open    # 미완료 작업만
 python -m gtrack raid list --open                    # 열린 RAID
-python -m gtrack open                                # 스프레드시트 주소
+python -m gtrack open ["웹사이트 개편"]              # 스프레드시트 주소 (생략 시 전체)
 
-# 프로젝트 삭제 (시트와 대시보드 행 모두 삭제)
+# 프로젝트 삭제 (시트와 대시보드 행, projects 연결 삭제. 스프레드시트 파일은 드라이브에서 직접 지운다)
 python -m gtrack project remove "웹사이트 개편"
 ```
 

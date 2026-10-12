@@ -19,7 +19,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
-from .layout import PRIORITIES, RAID_STATUSES, RAID_TYPES, STATUSES
+from .layout import PRIORITIES, RAID_STATUSES, RAID_TYPES, STATUSES, parse_date, validate_project_name
 from .tracker import Tracker, TrackerError
 
 # 설정·인증 파일을 두는 폴더. 어느 폴더에서 실행해도 같은 파일을 쓴다.
@@ -41,11 +41,54 @@ def _save_config(cfg: dict) -> None:
     CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _default_id(args) -> str | None:
+    """공용(기본) 스프레드시트. 프로젝트별 파일이 없는 프로젝트는 여기에 있다."""
+    return args.id or os.environ.get("GTRACK_SPREADSHEET_ID") or _load_config().get("spreadsheet_id")
+
+
 def _spreadsheet_id(args) -> str:
-    sid = args.id or os.environ.get("GTRACK_SPREADSHEET_ID") or _load_config().get("spreadsheet_id")
+    sid = _default_id(args)
     if not sid:
         raise TrackerError("스프레드시트가 지정되지 않았습니다. 먼저 'init' 을 실행하거나 --id 를 주세요.")
     return sid
+
+
+def _project_files() -> dict[str, str]:
+    """프로젝트 이름 → 그 프로젝트 전용 스프레드시트 ID (.gtrack.json 의 projects)"""
+    return _load_config().get("projects", {})
+
+
+def _file_of(args, project: str) -> str:
+    """프로젝트가 들어 있는 스프레드시트. --id > 프로젝트별 파일 > 공용 파일 순."""
+    return args.id or _project_files().get(project) or _spreadsheet_id(args)
+
+
+def _all_files(args) -> list[tuple[str, object]]:
+    """조회 대상 스프레드시트 목록. 각 항목은 (ID, 그 파일에서 보여 줄 프로젝트인지 판별하는 함수).
+    공용 파일에 남아 있는 프로젝트 중 전용 파일로 옮긴 것은 공용 파일 쪽에서 감춘다."""
+    if args.id:
+        return [(args.id, lambda name: True)]
+    pmap = _project_files()
+    files: dict[str, set] = {}
+    for name, sid in pmap.items():
+        files.setdefault(sid, set()).add(name)
+    out = [(sid, names.__contains__) for sid, names in files.items()]
+    default = _default_id(args)
+    if default and default not in files:
+        out.insert(0, (default, lambda name: name not in pmap))
+    if not out:
+        raise TrackerError("프로젝트가 없습니다. 'project add' 로 프로젝트를 만드세요.")
+    return out
+
+
+def _register_file(project: str, sid: str | None) -> None:
+    cfg = _load_config()
+    files = cfg.setdefault("projects", {})
+    if sid:
+        files[project] = sid
+    else:
+        files.pop(project, None)
+    _save_config(cfg)
 
 
 def _width(s: str) -> int:
@@ -106,14 +149,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--id", help="스프레드시트 ID (기본: .gtrack.json)")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("init", help="관리용 스프레드시트 생성 또는 기존 시트 연결")
+    p = sub.add_parser("init", help="공용 스프레드시트 생성 또는 기존 시트 연결 (--id 없이 쓰는 기본 파일)")
     p.add_argument("--title", default="프로젝트 관리", help="새로 만들 스프레드시트 제목")
     p.add_argument("--existing", metavar="SPREADSHEET_ID", help="새로 만들지 않고 기존 스프레드시트 사용")
 
-    sub.add_parser("open", help="스프레드시트 URL 출력")
+    p = sub.add_parser("open", help="스프레드시트 URL 출력")
+    p.add_argument("project", nargs="?", help="프로젝트 (생략 시 모든 파일)")
 
     proj = sub.add_parser("project", help="프로젝트 관리").add_subparsers(dest="action", required=True)
-    p = proj.add_parser("add", help="프로젝트(시트) 추가")
+    p = proj.add_parser("add", help="프로젝트 추가. 프로젝트마다 새 스프레드시트 파일을 만든다 (--id 를 주면 그 파일에 시트로 추가)")
     p.add_argument("name")
     p.add_argument("--owner", help="PM")
     p.add_argument("--start", help="시작일 YYYY-MM-DD (기본: 오늘)")
@@ -122,6 +166,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = proj.add_parser("remove", help="프로젝트 시트 삭제")
     p.add_argument("name")
     p.add_argument("--yes", action="store_true", help="확인 없이 삭제")
+    p = proj.add_parser("link", help="이미 있는 프로젝트 스프레드시트를 이 PC 설정에 연결 (다른 사람이 만든 파일 등)")
+    p.add_argument("name")
+    p.add_argument("spreadsheet_id", help="URL 의 /d/ 와 /edit 사이 문자열")
+    p = proj.add_parser("split", help="공용 파일에 있는 프로젝트를 새 전용 파일로 복사해 분리 (원본은 그대로 둔다)")
+    p.add_argument("name")
 
     task = sub.add_parser("task", help="작업 관리").add_subparsers(dest="action", required=True)
     p = task.add_parser("add", help="작업 추가")
@@ -153,6 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--status", choices=RAID_STATUSES, help="상태 (기본 열림)")
     p = raid.add_parser("update", help="RAID 항목 수정")
     p.add_argument("raid_id", help="예: R-001")
+    p.add_argument("--project", help="프로젝트 (RAID ID 는 파일마다 따로 매겨지므로 여러 파일에 같은 ID 가 있으면 필요)")
     p.add_argument("--type", choices=RAID_TYPES)
     p.add_argument("--text", help="내용")
     p.add_argument("--impact", choices=PRIORITIES)
@@ -193,7 +243,7 @@ def _python_exe() -> str:
     return sys.executable
 
 
-def run_git(args, tracker: Tracker, service_factory) -> None:
+def run_git(args, service_factory) -> None:
     from datetime import date, datetime
 
     from . import gitsync
@@ -212,7 +262,7 @@ def run_git(args, tracker: Tracker, service_factory) -> None:
 
     if args.action == "link":
         key = gitsync.normalize_repo(args.repo)
-        tracker.service = service_factory()
+        tracker = Tracker(service_factory(), _file_of(args, args.project))
         tracker.list_tasks(args.project)  # 프로젝트 존재 확인
         tracker.ensure_base_sheets()
         entry = links.get(key, {})
@@ -240,12 +290,13 @@ def run_git(args, tracker: Tracker, service_factory) -> None:
     targets = {gitsync.normalize_repo(args.repo): links.get(gitsync.normalize_repo(args.repo))} if args.repo else links
     if not targets or None in targets.values():
         raise TrackerError("연결된 저장소가 아닙니다. 먼저 'git link' 를 실행하세요.")
-    tracker.service = service_factory(interactive=not args.quiet)
+    service = service_factory(interactive=not args.quiet)
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for key, rule in targets.items():
         repo = rule.get("path", key)
         with gitsync.file_lock(gitsync.git_dir(repo) / "gtrack-sync.lock"):
             commits = [gitsync.match_tasks(c, rule) for c in gitsync.read_commits(repo, rule.get("since"))]
+            tracker = Tracker(service, _file_of(args, rule["project"]))
             result = tracker.sync_commits(rule["project"], commits, dry_run=args.dry_run)
         prefix = f"[{stamp}] " if args.quiet else ""
         if not result:
@@ -271,22 +322,61 @@ def run(args, service_factory) -> None:
         print(tracker.url)
         return
 
-    tracker = Tracker(None, _spreadsheet_id(args))
     if args.cmd == "open":
-        print(tracker.url)
+        if args.project:
+            print(Tracker(None, _file_of(args, args.project)).url)
+        elif args.id:
+            print(Tracker(None, args.id).url)
+        else:
+            rows = [[name, Tracker(None, sid).url] for name, sid in _project_files().items()]
+            if _default_id(args):
+                rows.insert(0, ["(공용 파일)", Tracker(None, _default_id(args)).url])
+            print_table(["프로젝트", "URL"], rows, max_width=100)
         return
     if args.cmd == "git":
-        run_git(args, tracker, service_factory)
+        run_git(args, service_factory)
         return
-    tracker.service = service_factory()
+    service = service_factory()
+    # task·raid 는 프로젝트가 있는 파일에서 처리한다. project 명령은 아래에서 파일을 정한다.
+    tracker = Tracker(service, _file_of(args, args.project)) if getattr(args, "project", None) else None
 
     if args.cmd == "project":
         if args.action == "add":
+            if args.id:
+                tracker = Tracker(service, args.id)
+            else:
+                name = validate_project_name(args.name)
+                if name in _project_files():
+                    raise TrackerError(f"이미 있는 프로젝트입니다: {name}")
+                for value, label in ((args.start, "시작일"), (args.end, "종료일")):
+                    if value:
+                        parse_date(value, label)  # 잘못된 날짜로 빈 파일만 생기지 않게 먼저 확인
+                tracker = Tracker.create(service, name)
             p = tracker.add_project(args.name, owner=args.owner, start=args.start, end=args.end)
+            if not args.id:
+                _register_file(p["name"], tracker.spreadsheet_id)
             print(f"프로젝트 추가: {p['name']} ({p['start']} ~ {p['end']})")
             print(f"{tracker.url}#gid={p['sheet_id']}")
+        elif args.action == "link":
+            tracker = Tracker(service, args.spreadsheet_id)
+            tracker.list_tasks(args.name)  # 그 파일에 프로젝트 시트가 있는지 확인
+            _register_file(args.name, tracker.spreadsheet_id)
+            print(f"연결했습니다: {args.name} → {tracker.url}")
+        elif args.action == "split":
+            if not args.id and args.name in _project_files():
+                raise TrackerError(f"이미 전용 파일이 있는 프로젝트입니다: {args.name}")
+            src = Tracker(service, _spreadsheet_id(args))
+            src.list_tasks(args.name)  # 프로젝트 존재 확인 (새 파일을 만들기 전에)
+            dest = Tracker.create(service, validate_project_name(args.name))
+            p = src.copy_project(args.name, dest)
+            _register_file(args.name, dest.spreadsheet_id)
+            print(f"분리했습니다: {args.name} (RAID {p['raid']}건, 커밋 로그 {p['commits']}건 복사)")
+            print(dest.url)
+            print(f"원본 파일의 '{args.name}' 시트는 그대로 남아 있습니다. 확인 후 삭제하려면: "
+                  f"gtrack --id {src.spreadsheet_id} project remove \"{args.name}\"")
         elif args.action == "list":
-            projects = tracker.list_projects()
+            projects = [p for sid, keep in _all_files(args)
+                        for p in Tracker(service, sid).list_projects() if keep(p["name"])]
             if not projects:
                 print("프로젝트가 없습니다.")
                 return
@@ -301,8 +391,12 @@ def run(args, service_factory) -> None:
                 if answer.strip().lower() != "y":
                     print("취소했습니다.")
                     return
+            tracker = Tracker(service, _file_of(args, args.name))
             tracker.remove_project(args.name)
             print(f"삭제했습니다: {args.name}")
+            if not args.id and args.name in _project_files():
+                _register_file(args.name, None)
+                print(f"스프레드시트 파일은 남아 있습니다. 필요 없으면 구글 드라이브에서 삭제하세요: {tracker.url}")
 
     elif args.cmd == "task":
         fields = lambda: dict(owner=args.owner, start=args.start, end=args.end, progress=args.progress,
@@ -332,12 +426,25 @@ def run(args, service_factory) -> None:
                                  action=args.response, due=args.due, related=args.related, status=args.status)
             print(f"RAID 추가: {r['id']} [{r['type']}/{r['impact']}] {r['text']}")
         elif args.action == "update":
+            if tracker is None:
+                # RAID ID 는 파일마다 따로 매겨진다. 프로젝트를 주지 않으면 모든 파일에서 찾는다.
+                found = [sid for sid, keep in _all_files(args)
+                         for i in Tracker(service, sid).list_raid() if i["id"] == args.raid_id and keep(i["project"])]
+                if not found:
+                    raise TrackerError(f"RAID 항목 {args.raid_id} 가 없습니다.")
+                if len(found) > 1:
+                    raise TrackerError(f"{args.raid_id} 가 여러 프로젝트에 있습니다. --project 로 지정하세요.")
+                tracker = Tracker(service, found[0])
             r = tracker.update_raid(args.raid_id, type=args.type, text=args.text, impact=args.impact,
                                     owner=args.owner, action=args.response, due=args.due, related=args.related,
                                     status=args.status)
             print(f"수정 완료: {r['id']} [{r['status']}] {r['text']}")
         elif args.action == "list":
-            items = tracker.list_raid(args.project, open_only=args.open)
+            if tracker:
+                items = tracker.list_raid(args.project, open_only=args.open)
+            else:
+                items = [i for sid, keep in _all_files(args)
+                         for i in Tracker(service, sid).list_raid(open_only=args.open) if keep(i["project"])]
             if not items:
                 print("RAID 항목이 없습니다.")
                 return
