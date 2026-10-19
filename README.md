@@ -109,6 +109,20 @@ python -m gtrack git link --repo D:/work/my-app --project "웹사이트 개편"
 
 커밋 메시지의 작업 ID, `(scope)`, 변경 파일 경로로 작업을 찾습니다. 자세한 내용은 **[skill/gtrack/references/GIT_SYNC.md](skill/gtrack/references/GIT_SYNC.md)**를 참고하세요.
 
+## 일일 업무일지 자동 작성
+
+여러 저장소에서 내가 한 커밋을 모아 날짜별 업무일지(Markdown)를 만듭니다. 시트나 구글 로그인 없이 git 기록만 읽습니다.
+
+```powershell
+gtrack worklog add D:/work --match bx     # D:/work 아래 이름에 bx 가 들어간 저장소 모두 (새로 clone 한 것도 자동 포함)
+gtrack worklog write                      # 오늘 일지 작성 → worklog/2026-10/2026-10-19.md
+gtrack worklog show --week                # 이번 주 일지 보기
+powershell -ExecutionPolicy Bypass -File scripts\install-worklog.ps1   # 매일 18:50·로그인 시 자동 작성
+```
+- 모든 로컬 브랜치에서 **내 커밋**(`user.email`)만 모아 기능 개발·버그 수정 등으로 분류합니다.
+- `## 메모` 아래에 직접 적은 내용은 다시 작성해도 유지됩니다.
+- 자세한 내용은 **[skill/gtrack/references/WORKLOG.md](skill/gtrack/references/WORKLOG.md)**를 참고하세요.
+
 ## PC를 켤 때 자동으로 열기 (Windows)
 
 ```powershell
@@ -160,5 +174,6 @@ gtrack/
   tracker.py  Sheets API 호출 (프로젝트/작업/RAID 추가·수정·조회·삭제)
   auth.py     OAuth / 서비스 계정 인증
   cli.py      명령줄 인터페이스
+  worklog.py  git 커밋으로 일일 업무일지(Markdown) 작성
 tests/        단위 테스트
 ```

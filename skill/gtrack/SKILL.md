@@ -1,6 +1,6 @@
 ---
 name: gtrack
-description: 구글 시트 프로젝트 일정·진척 관리 (전역 스킬, 어느 폴더에서나 사용). 프로젝트(전용 스프레드시트 파일) 추가·삭제·분리, 작업 추가·일괄 등록, 진척률·상태·일정·선행작업 수정, 리스크·이슈(RAID) 기록, git 커밋 자동 반영, 프로젝트 현황·건강도 조회를 gtrack CLI로 처리한다. "프로젝트 추가해줘", "작업 넣어줘", "진척률 60%로", "T-003 완료 처리", "지연된 작업 보여줘", "프로젝트 현황", "일정 바꿔줘", "리스크 등록해줘", "이슈 해결 처리", "시트 업데이트해줘" 같은 요청이나 /gtrack 호출 시 사용.
+description: 구글 시트 프로젝트 일정·진척 관리 (전역 스킬, 어느 폴더에서나 사용). 프로젝트(전용 스프레드시트 파일) 추가·삭제·분리, 작업 추가·일괄 등록, 진척률·상태·일정·선행작업 수정, 리스크·이슈(RAID) 기록, git 커밋 자동 반영, 프로젝트 현황·건강도 조회, git 커밋 기반 일일 업무일지 작성·조회를 gtrack CLI로 처리한다. "프로젝트 추가해줘", "작업 넣어줘", "진척률 60%로", "T-003 완료 처리", "지연된 작업 보여줘", "프로젝트 현황", "일정 바꿔줘", "리스크 등록해줘", "이슈 해결 처리", "시트 업데이트해줘", "오늘 업무일지 써줘", "이번 주 한 일 보여줘" 같은 요청이나 /gtrack 호출 시 사용.
 ---
 
 # gtrack — 구글 시트 프로젝트 관리
@@ -21,6 +21,7 @@ description: 구글 시트 프로젝트 일정·진척 관리 (전역 스킬, �
 | `references/GIT_SYNC.md` | 커밋 자동 반영 규칙과 `.gtrack.json`의 `git_sync` 형식 |
 | `references/SETUP.md` | Google 인증 설정(JSON 파일, 테스트 사용자 추가), 자주 나는 오류 |
 | `references/SECURITY.md` | 비밀 파일 관리, 유출 시 대처 |
+| `references/WORKLOG.md` | 일일 업무일지 대상 저장소·자동 작성·`.gtrack.json`의 `worklog` 형식 |
 
 ## 실행 방법
 
@@ -49,6 +50,9 @@ gtrack <명령>
 | git 저장소 연결 (커밋 자동 반영) | `gtrack git link --repo <경로> --project "<프로젝트>"` |
 | 커밋 지금 반영 / 미리보기 | `gtrack git sync [--repo <경로>] [--dry-run]` |
 | 연결 목록 / 해제 | `gtrack git list` / `gtrack git unlink --repo <경로>` |
+| 업무일지 대상 추가 / 확인 | `gtrack worklog add <폴더> --match bx` 또는 `gtrack worklog add <저장소>` / `gtrack worklog repos` |
+| 업무일지 작성 | `gtrack worklog write [--date YYYY-MM-DD \| --from D --to D \| --catch-up]` |
+| 업무일지 보기 | `gtrack worklog show [--date D] [--week] [--list]` |
 | 파일 주소 | `gtrack open ["<프로젝트>"]` (생략 시 모든 프로젝트 파일) |
 | 공용 파일 만들기/연결 (예전 방식, 보통 쓰지 않음) | `gtrack init --title "<제목>"` / `gtrack init --existing <ID>` |
 
@@ -80,6 +84,14 @@ gtrack <명령>
   3. 사용자가 동의하면 반영한다.
 - 연결된 저장소에서 커밋할 때 해당 작업 ID를 알면 커밋 메시지에 `T-xxx`를 넣는다. 작업을 끝낸 커밋이면 `T-xxx 완료`를 넣는다. 그 저장소의 커밋 메시지 규칙이 우선이다.
 - 커밋과 작업을 연결하는 규칙(paths/scopes)은 설치 폴더 `.gtrack.json`의 `git_sync`에 있다. 새 작업을 추가하면 해당 경로·scope 규칙도 추가한다. 형식은 `references/GIT_SYNC.md`에 있다.
+
+## 일일 업무일지
+
+- "오늘 업무일지 써줘", "오늘 한 일 정리해줘"를 요청받으면 `gtrack worklog write` 후 `gtrack worklog show`로 결과를 보여 준다.
+- "이번 주 한 일", "주간 보고"는 `gtrack worklog write --from <월요일> --to <오늘>`로 빠진 날을 채운 뒤 `gtrack worklog show --week`를 읽고 요약한다.
+- 대상이 없다는 오류가 나면 사용자에게 저장소들이 있는 폴더와 이름 규칙(예: `bx`)을 물어 `gtrack worklog add`를 실행한다.
+- 일지 파일은 다시 작성하면 덮어써진다. 사용자가 요청한 요약·내일 할 일 같은 내용은 그 파일의 `## 메모` 아래에만 적는다(거기는 유지된다).
+- 매일 자동 작성을 원하면 `scripts\install-worklog.ps1` 실행을 안내한다.
 
 ## 작업 절차
 

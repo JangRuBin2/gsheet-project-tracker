@@ -8,6 +8,7 @@
   python -m gtrack task import "웹사이트 개편" tasks.csv
   python -m gtrack raid add "웹사이트 개편" 리스크 "결제 모듈 교체 지연 가능" --impact 높음
   python -m gtrack project list
+  python -m gtrack worklog add D:/work --match bx ; python -m gtrack worklog write
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ import argparse
 import csv
 import json
 import os
+import subprocess
 import sys
 import unicodedata
 from pathlib import Path
@@ -227,6 +229,25 @@ def build_parser() -> argparse.ArgumentParser:
     p = git.add_parser("unlink", help="hook 제거 및 연결 해제")
     p.add_argument("--repo", required=True)
     git.add_parser("list", help="연결된 저장소 목록")
+
+    wl = sub.add_parser("worklog", help="git 커밋으로 일일 업무일지 자동 작성").add_subparsers(dest="action", required=True)
+    p = wl.add_parser("add", help="업무일지 대상 저장소(또는 저장소들이 있는 폴더) 추가")
+    p.add_argument("path", help="저장소 경로, 또는 --match 와 함께 저장소들이 들어 있는 폴더")
+    p.add_argument("--match", help="폴더 아래에서 이름에 이 글자가 들어간 저장소만 (예: bx). 실행할 때마다 새로 찾는다")
+    p = wl.add_parser("remove", help="대상에서 빼기")
+    p.add_argument("path")
+    wl.add_parser("repos", help="대상 저장소 목록 (지금 찾은 결과)")
+    p = wl.add_parser("write", help="업무일지 작성 (같은 날을 다시 쓰면 갱신, 메모는 유지)")
+    p.add_argument("--date", help="이 날짜 (기본: 오늘)")
+    p.add_argument("--from", dest="start", help="기간 시작일 (--to 와 함께)")
+    p.add_argument("--to", dest="end", help="기간 종료일 (기본: 오늘)")
+    p.add_argument("--catch-up", action="store_true", help="마지막으로 작성한 날부터 오늘까지 (예약 작업용)")
+    p.add_argument("--author", help="이 작성자의 커밋만 (기본: 설정의 author 또는 저장소의 user.email)")
+    p.add_argument("--quiet", action="store_true", help="예약 작업용: 결과를 업무일지 폴더의 worklog.log 에 남긴다")
+    p = wl.add_parser("show", help="업무일지 보기")
+    p.add_argument("--date", help="이 날짜 (기본: 오늘)")
+    p.add_argument("--week", action="store_true", help="그 날짜가 속한 주(월~일) 전체")
+    p.add_argument("--list", action="store_true", help="작성된 업무일지 파일 목록")
     return parser
 
 
@@ -308,7 +329,159 @@ def run_git(args, service_factory) -> None:
                   f" | 반영: {', '.join(r['applied']) or '-'}")
 
 
+CATCH_UP_DAYS = 31
+
+
+def _worklog_dir(cfg: dict) -> Path:
+    custom = cfg.get("worklog", {}).get("dir")
+    return Path(custom).expanduser() if custom else HOME / "worklog"
+
+
+def _worklog_repos(cfg: dict, author: str | None = None) -> list[dict]:
+    """업무일지 대상 저장소. git link 로 연결된 저장소면 프로젝트 이름과 작업 연결 규칙도 함께 쓴다."""
+    from . import gitsync, worklog
+
+    wcfg = cfg.get("worklog", {})
+    links = cfg.get("git_sync", {})
+    repos = []
+    for path in worklog.find_repos(wcfg.get("sources", [])):
+        rule = links.get(gitsync.normalize_repo(str(path)), {})
+        repos.append({"path": str(path), "name": path.name, "project": rule.get("project", ""), "rule": rule,
+                      "author": author or wcfg.get("author") or worklog.git_email(path)})
+    return repos
+
+
+def _parse_day(text: str | None, label: str) -> "date":
+    from datetime import date
+
+    return parse_date(text, label) if text else date.today()
+
+
+def run_worklog(args) -> None:
+    from datetime import date, datetime, timedelta
+
+    from . import worklog
+
+    cfg = _load_config()
+    wcfg = cfg.setdefault("worklog", {})
+    sources = wcfg.setdefault("sources", [])
+    base = _worklog_dir(cfg)
+
+    if args.action == "add":
+        path = Path(args.path).expanduser()
+        if not path.is_dir():
+            raise TrackerError(f"폴더가 없습니다: {args.path}")
+        if not args.match and not worklog.is_repo(path):
+            raise TrackerError(f"git 저장소가 아닙니다: {args.path} — 저장소들이 들어 있는 폴더면 --match 를 주세요.")
+        entry = {"path": str(path)}
+        if args.match:
+            entry["match"] = args.match
+        sources[:] = [s for s in sources if (s["path"], s.get("match")) != (entry["path"], entry.get("match"))]
+        sources.append(entry)
+        _save_config(cfg)
+        found = worklog.find_repos([entry])
+        print(f"추가했습니다: {args.path}{f' (이름에 {args.match!r} 포함)' if args.match else ''} — 저장소 {len(found)}곳")
+        for p in found:
+            print(f"  {p}")
+        return
+
+    if args.action == "remove":
+        before = len(sources)
+        sources[:] = [s for s in sources if Path(s["path"]).expanduser() != Path(args.path).expanduser()]
+        if len(sources) == before:
+            raise TrackerError(f"대상에 없는 경로입니다: {args.path}")
+        _save_config(cfg)
+        print(f"뺐습니다: {args.path}")
+        return
+
+    if args.action == "repos":
+        if not sources:
+            print("대상이 없습니다. 'gtrack worklog add <경로> [--match bx]' 로 추가하세요.")
+            return
+        print_table(["경로", "match"], [[s["path"], s.get("match", "")] for s in sources], max_width=80)
+        print()
+        repos = _worklog_repos(cfg)
+        print_table(["저장소", "프로젝트", "작성자", "경로"],
+                    [[r["name"], r["project"], r["author"] or "(user.email 없음)", r["path"]] for r in repos],
+                    max_width=60)
+        return
+
+    if args.action == "show":
+        if args.list:
+            files = sorted(base.glob("*/*.md"), reverse=True)
+            if not files:
+                print(f"작성된 업무일지가 없습니다. ({base})")
+                return
+            for f in files:
+                print(f"{f.stem}  {f}")
+            return
+        day = _parse_day(args.date, "날짜")
+        days = worklog.day_range(day - timedelta(days=day.weekday()), day + timedelta(days=6 - day.weekday())) \
+            if args.week else [day.isoformat()]
+        shown = 0
+        for d in days:
+            path = worklog.log_path(base, d)
+            if path.exists():
+                print(path.read_text(encoding="utf-8").rstrip() + "\n")
+                shown += 1
+        if not shown:
+            print(f"{days[0]}{' 주' if args.week else ''} 업무일지가 없습니다. 'gtrack worklog write' 로 작성하세요.")
+        return
+
+    # write
+    def log(msg: str) -> None:
+        if args.quiet:
+            base.mkdir(parents=True, exist_ok=True)
+            with open(base / "worklog.log", "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}\n")
+        else:
+            print(msg)
+
+    if not sources:
+        raise TrackerError("업무일지 대상 저장소가 없습니다. 'gtrack worklog add <경로> [--match bx]' 로 추가하세요.")
+    today = date.today()
+    if args.catch_up:
+        last = wcfg.get("last")
+        start = parse_date(last, "last") if last else today - timedelta(days=7)
+        start, end = max(start, today - timedelta(days=CATCH_UP_DAYS)), today
+    elif args.start:
+        start, end = parse_date(args.start, "시작일"), _parse_day(args.end, "종료일")
+    else:
+        start = end = _parse_day(args.date, "날짜")
+    if end < start:
+        raise TrackerError("종료일이 시작일보다 빠릅니다.")
+
+    repos = []
+    for r in _worklog_repos(cfg, args.author):
+        if r["author"]:
+            repos.append(r)
+        else:
+            log(f"{r['path']}: 작성자를 알 수 없어 건너뜁니다 (git config user.email 또는 worklog.author 설정)")
+    days: dict[str, list[dict]] = {}
+    for r in repos:
+        try:
+            for d, entries in worklog.collect([r], start, end).items():
+                days.setdefault(d, []).extend(entries)
+        except (OSError, subprocess.CalledProcessError) as e:
+            log(f"{r['path']}: git log 실패 ({e})")
+    written = [p for d in worklog.day_range(start, end) if (p := worklog.write_day(base, d, days.get(d, [])))]
+    if args.catch_up:
+        wcfg["last"] = today.isoformat()
+        _save_config(cfg)
+    period = start.isoformat() if start == end else f"{start} ~ {end}"
+    if not written:
+        log(f"{period}: 저장소 {len(repos)}곳에 커밋 없음")
+        return
+    log(f"{period}: 업무일지 {len(written)}개 작성 (저장소 {len(repos)}곳)")
+    for p in written:
+        n = sum(len(e["commits"]) for e in days[p.stem])
+        log(f"  {p}  커밋 {n}건")
+
+
 def run(args, service_factory) -> None:
+    if args.cmd == "worklog":
+        run_worklog(args)
+        return
     if args.cmd == "init":
         service = service_factory()
         if args.existing:

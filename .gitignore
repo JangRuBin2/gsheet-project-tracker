@@ -11,3 +11,6 @@ __pycache__/
 .venv/
 *.egg-info/
 build/
+
+# 개인 업무일지 (gtrack worklog)
+worklog/
