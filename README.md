@@ -109,6 +109,20 @@ python -m gtrack git link --repo D:/work/my-app --project "웹사이트 개편"
 
 커밋 메시지의 작업 ID, `(scope)`, 변경 파일 경로로 작업을 찾습니다. 자세한 내용은 **[skill/gtrack/references/GIT_SYNC.md](skill/gtrack/references/GIT_SYNC.md)**를 참고하세요.
 
+## 일일 업무일지
+
+연결한 저장소들에서 **내가 한 커밋**을 날짜별로 모아 업무일지 스프레드시트에 하루 한 줄씩 기록합니다.
+
+```powershell
+gtrack worklog init             # 업무일지 파일 생성 (최초 1회). 이후 커밋·푸시할 때마다 자동 기록
+gtrack worklog sync --days 30   # 지난 기록 채우기
+gtrack worklog show --week      # 터미널에서 보기 (git 에서 바로 읽음, 로그인 불필요)
+```
+- 모든 브랜치에서 저장소별 `git config user.email` 커밋만 모읍니다. cherry-pick으로 중복된 커밋은 한 줄로 합칩니다.
+- **메모** 칸에는 회의·리뷰처럼 커밋이 없는 일을 직접 적습니다. 이 칸은 자동 갱신 때 덮어쓰지 않습니다.
+
+자세한 내용은 **[skill/gtrack/references/WORKLOG.md](skill/gtrack/references/WORKLOG.md)**를 참고하세요.
+
 ## PC를 켤 때 자동으로 열기 (Windows)
 
 ```powershell
@@ -159,6 +173,8 @@ gtrack/
   layout.py   시트 구조·수식·서식 요청을 만드는 순수 함수
   tracker.py  Sheets API 호출 (프로젝트/작업/RAID 추가·수정·조회·삭제)
   auth.py     OAuth / 서비스 계정 인증
+  gitsync.py  git 커밋 읽기, 작업 연결 규칙, hook 설치
+  worklog.py  연결 저장소의 내 커밋을 날짜별 업무일지로 모으기
   cli.py      명령줄 인터페이스
 tests/        단위 테스트
 ```

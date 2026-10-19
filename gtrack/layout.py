@@ -105,6 +105,20 @@ COMMIT_COLUMNS = [
 COMMIT_KEYS = [k for k, _ in COMMIT_COLUMNS]
 COMMIT_HEADERS = [h for _, h in COMMIT_COLUMNS]
 KCOL = {k: i for i, k in enumerate(COMMIT_KEYS)}
+WORKLOG = "업무일지"
+WORKLOG_COLUMNS = [
+    ("date", "날짜"),
+    ("weekday", "요일"),
+    ("commits", "커밋"),
+    ("repos", "저장소"),
+    ("projects", "프로젝트"),
+    ("tasks", "관련작업"),
+    ("work", "작업 내용"),
+    ("memo", "메모"),        # 사람이 직접 적는 칸. 자동 갱신 때 덮어쓰지 않는다.
+]
+WORKLOG_KEYS = [k for k, _ in WORKLOG_COLUMNS]
+WORKLOG_HEADERS = [h for _, h in WORKLOG_COLUMNS]
+WCOL = {k: i for i, k in enumerate(WORKLOG_KEYS)}
 
 RAID_TYPES = ["리스크", "가정", "이슈", "의존성", "결정"]
 RAID_STATUSES = ["열림", "대응중", "해결", "종료"]
@@ -585,4 +599,33 @@ def commit_log_sheet_requests(sheet_id: int) -> list[dict]:
         _col_width(sheet_id, KCOL["branch"], KCOL["branch"] + 1, 150),
         _col_width(sheet_id, KCOL["subject"], KCOL["subject"] + 1, 420),
         _col_width(sheet_id, KCOL["applied"], KCOL["applied"] + 1, 260),
+    ]
+
+
+def worklog_sheet_requests(sheet_id: int, add_sheet: bool = True) -> list[dict]:
+    """일일 업무일지 시트 (gtrack worklog sync 가 채운다). 하루 한 줄, 최신 날짜가 위."""
+    data = [_range(sheet_id, 1, 5000, 0, len(WORKLOG_COLUMNS))]
+    grid = {"rowCount": 5000, "columnCount": len(WORKLOG_COLUMNS), "frozenRowCount": 1}
+    if add_sheet:
+        requests = [{"addSheet": {"properties": {"sheetId": sheet_id, "title": WORKLOG, "index": 0,
+                                                 "gridProperties": grid}}}]
+    else:
+        requests = [{"updateSheetProperties": {
+            "properties": {"sheetId": sheet_id, "title": WORKLOG, "gridProperties": grid},
+            "fields": "title,gridProperties(rowCount,columnCount,frozenRowCount)"}}]
+    return requests + [
+        _header_row(sheet_id, WORKLOG_HEADERS),
+        _header_height(sheet_id),
+        {"repeatCell": {
+            "range": data[0],
+            "cell": {"userEnteredFormat": {"verticalAlignment": "TOP", "wrapStrategy": "WRAP"}},
+            "fields": "userEnteredFormat.verticalAlignment,userEnteredFormat.wrapStrategy",
+        }},
+        _cond_format(data, '=OR($B2="토",$B2="일")', {"backgroundColor": COLORS["calc_bg"]}),
+        _col_width(sheet_id, WCOL["date"], WCOL["date"] + 1, 100),
+        _col_width(sheet_id, WCOL["weekday"], WCOL["commits"] + 1, 50),
+        _col_width(sheet_id, WCOL["repos"], WCOL["projects"] + 1, 160),
+        _col_width(sheet_id, WCOL["tasks"], WCOL["tasks"] + 1, 140),
+        _col_width(sheet_id, WCOL["work"], WCOL["work"] + 1, 560),
+        _col_width(sheet_id, WCOL["memo"], WCOL["memo"] + 1, 260),
     ]

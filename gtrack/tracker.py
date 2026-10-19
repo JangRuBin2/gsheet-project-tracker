@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 from .layout import (
     COL, COMMIT_KEYS, COMMIT_LOG, DASH_KEYS, DASHBOARD, DONE, KCOL, RAID, RAID_KEYS, RCOL, RESERVED_SHEETS,
-    TASK_KEYS, col_letter, commit_log_sheet_requests, dashboard_format_requests, dashboard_row, derive_status, next_id, parse_date, parse_progress,
+    TASK_KEYS, WCOL, WORKLOG, WORKLOG_KEYS, col_letter, commit_log_sheet_requests, worklog_sheet_requests, dashboard_format_requests, dashboard_row, derive_status, next_id, parse_date, parse_progress,
     parse_task_refs, project_sheet_requests, quote_sheet, raid_row, raid_sheet_requests, task_row,
     validate_impact, validate_priority, validate_project_name, validate_raid_status, validate_raid_type,
     validate_status,
@@ -380,6 +380,53 @@ class Tracker:
                      ", ".join(c.tasks), ", ".join(notes[c.short])] for c in new]
             self._write_rows(COMMIT_LOG, len(ids) + 1, rows, input_option="RAW")
         return [{"commit": c.short, "subject": c.subject, "tasks": c.tasks, "applied": notes[c.short]} for c in new]
+
+    # ---------- 업무일지 ----------
+
+    @classmethod
+    def create_worklog(cls, service, title: str = WORKLOG) -> "Tracker":
+        """업무일지 전용 스프레드시트를 만든다."""
+        res = service.spreadsheets().create(body={
+            "properties": {"title": title, "locale": "ko_KR", "timeZone": "Asia/Seoul"},
+            "sheets": [{"properties": {"sheetId": 0, "title": WORKLOG}}],
+        }).execute()
+        tracker = cls(service, res["spreadsheetId"])
+        tracker._batch_update(worklog_sheet_requests(0, add_sheet=False))
+        return tracker
+
+    def write_worklog(self, rows: list[list]) -> dict:
+        """worklog.Day.row() 목록을 기록한다. 같은 날짜 줄이 있으면 날짜~작업 내용 칸만 다시 쓰고
+        (메모 칸은 그대로), 없으면 새 줄로 추가한다. 끝나면 최신 날짜가 위로 오게 정렬한다."""
+        sheets = self._sheet_map()
+        if WORKLOG not in sheets:
+            sid = _new_sheet_id(sheets)
+            self._batch_update(worklog_sheet_requests(sid))
+            sheets[WORKLOG] = sid
+        dates = self._column_values(WORKLOG, "A")
+        where = {d: i + 1 for i, d in enumerate(dates) if i > 0 and d}
+        updated, added = [], []
+        data, row = [], len(dates) + 1
+        for r in rows:
+            if r[0] in where:
+                target = where[r[0]]
+                updated.append(r[0])
+            else:
+                target, row = row, row + 1
+                added.append(r[0])
+            data.append({"range": f"{quote_sheet(WORKLOG)}!A{target}", "values": [r]})
+        if data:
+            self.service.spreadsheets().values().batchUpdate(
+                spreadsheetId=self.spreadsheet_id, body={"valueInputOption": "RAW", "data": data}).execute()
+            self._batch_update([{"sortRange": {
+                "range": {"sheetId": sheets[WORKLOG], "startRowIndex": 1, "endRowIndex": row - 1,
+                          "startColumnIndex": 0, "endColumnIndex": len(WORKLOG_KEYS)},
+                "sortSpecs": [{"dimensionIndex": WCOL["date"], "sortOrder": "DESCENDING"}]}}])
+        return {"updated": updated, "added": added}
+
+    def list_worklog(self, start: str = "", end: str = "9999") -> list[dict]:
+        rows = self._get_values(f"{quote_sheet(WORKLOG)}!A2:{col_letter(len(WORKLOG_KEYS) - 1)}")
+        items = [_record(WORKLOG_KEYS, r) for r in rows if r and r[0]]
+        return sorted((i for i in items if start <= i["date"] <= end), key=lambda i: i["date"])
 
     def _commit_hashes(self, project: str) -> list[str]:
         if COMMIT_LOG not in self._sheet_map():

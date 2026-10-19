@@ -66,6 +66,12 @@ class FakeSheets:
                 elif "deleteSheet" in r:
                     sid = r["deleteSheet"]["sheetId"]
                     self.sheets = {t: s for t, s in self.sheets.items() if s["id"] != sid}
+                elif "sortRange" in r:
+                    rng, spec = r["sortRange"]["range"], r["sortRange"]["sortSpecs"][0]
+                    rows = next(s for s in self.sheets.values() if s["id"] == rng["sheetId"])["rows"]
+                    i0, i1, col = rng["startRowIndex"], rng["endRowIndex"], spec["dimensionIndex"]
+                    rows[i0:i1] = sorted(rows[i0:i1], key=lambda row: row[col] if len(row) > col else "",
+                                         reverse=spec["sortOrder"] == "DESCENDING")
                 elif "deleteDimension" in r:
                     rng = r["deleteDimension"]["range"]
                     sheet = next(s for s in self.sheets.values() if s["id"] == rng["sheetId"])

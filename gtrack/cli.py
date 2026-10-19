@@ -227,6 +227,24 @@ def build_parser() -> argparse.ArgumentParser:
     p = git.add_parser("unlink", help="hook 제거 및 연결 해제")
     p.add_argument("--repo", required=True)
     git.add_parser("list", help="연결된 저장소 목록")
+
+    wl = sub.add_parser("worklog", help="연결된 저장소의 내 커밋으로 일일 업무일지 작성").add_subparsers(
+        dest="action", required=True)
+    p = wl.add_parser("init", help="업무일지 스프레드시트 생성 (이후 커밋·푸시 때 자동 기록)")
+    p.add_argument("--title", default="업무일지", help="스프레드시트 제목")
+    p.add_argument("--existing", metavar="SPREADSHEET_ID", help="새로 만들지 않고 기존 스프레드시트에 시트 추가")
+    for name, help_ in (("show", "업무일지 보기 (git 에서 바로 읽음, 로그인 불필요)"),
+                        ("sync", "업무일지 시트에 기록 (hook 이 자동 실행)")):
+        p = wl.add_parser(name, help=help_)
+        p.add_argument("--date", help="하루 YYYY-MM-DD (기본: 오늘)")
+        p.add_argument("--from", dest="start", help="시작일 YYYY-MM-DD")
+        p.add_argument("--to", dest="end", help="종료일 YYYY-MM-DD (기본: 오늘)")
+        p.add_argument("--days", type=int, help="오늘까지 최근 N일")
+        p.add_argument("--week", action="store_true", help="이번 주 (월요일~오늘)")
+        p.add_argument("--author", help="작성자 (기본: 저장소별 git config user.email)")
+        if name == "show":
+            p.add_argument("--out", help="마크다운 파일로 저장")
+    p.add_argument("--quiet", action="store_true", help="hook 용: 브라우저 로그인 없이, 로그 형식으로 출력")
     return parser
 
 
@@ -307,6 +325,88 @@ def run_git(args, service_factory) -> None:
             print(f"{prefix}  {r['commit']} {r['subject'][:60]} | 작업: {', '.join(r['tasks']) or '-'}"
                   f" | 반영: {', '.join(r['applied']) or '-'}")
 
+    # 업무일지를 만들어 두었으면 함께 갱신한다. 자정을 넘긴 커밋·밀린 반영을 위해 최근 3일을 다시 쓴다.
+    if cfg.get("worklog", {}).get("spreadsheet_id") and not args.dry_run:
+        try:
+            _sync_worklog(cfg, service, *_worklog_range(days=3), quiet=args.quiet, stamp=stamp)
+        except Exception as e:  # 업무일지 실패가 커밋 반영 결과를 가리지 않게 한다
+            print(f"[{stamp}] 업무일지 갱신 실패: {e}" if args.quiet else f"업무일지 갱신 실패: {e}")
+
+
+def _worklog_range(**kw) -> tuple[str, str]:
+    from . import worklog
+
+    return worklog.date_range(**kw)
+
+
+def _sync_worklog(cfg: dict, service, start: str, end: str, author: str | None = None, quiet: bool = False,
+                  stamp: str = "") -> None:
+    from . import gitsync, worklog
+
+    days = worklog.collect(cfg.get("git_sync", {}), start, end, author or cfg["worklog"].get("author"))
+    # 여러 저장소의 hook 이 동시에 돌아도 같은 날짜 줄이 두 번 생기지 않게 한다.
+    with gitsync.file_lock(HOME / ".gtrack-worklog.lock"):
+        result = Tracker(service, cfg["worklog"]["spreadsheet_id"]).write_worklog([d.row() for d in days])
+    prefix = f"[{stamp}] " if quiet else ""
+    if not days:
+        print(f"{prefix}업무일지: {start} ~ {end} 커밋 없음")
+        return
+    print(f"{prefix}업무일지: {start} ~ {end} 커밋 {sum(len(d.entries) for d in days)}건 "
+          f"(새 날짜 {len(result['added'])}, 갱신 {len(result['updated'])})")
+
+
+def run_worklog(args, service_factory) -> None:
+    from . import worklog
+
+    cfg = _load_config()
+    links = cfg.get("git_sync", {})
+    wcfg = cfg.get("worklog", {})
+
+    if args.action == "init":
+        service = service_factory()
+        if args.existing:
+            tracker = Tracker(service, args.existing)
+            tracker.write_worklog([])  # 업무일지 시트가 없으면 만든다
+        elif wcfg.get("spreadsheet_id"):
+            raise TrackerError(f"이미 업무일지가 있습니다: {Tracker(None, wcfg['spreadsheet_id']).url}")
+        else:
+            tracker = Tracker.create_worklog(service, args.title)
+        cfg["worklog"] = {**wcfg, "spreadsheet_id": tracker.spreadsheet_id}
+        _save_config(cfg)
+        print(f"업무일지를 만들었습니다: {tracker.url}")
+        if not links:
+            print("연결된 저장소가 없습니다. 'git link' 로 저장소를 연결하면 커밋할 때마다 자동으로 기록됩니다.")
+        else:
+            print(f"대상 저장소 {len(links)}개: {', '.join(Path(v.get('path', k)).name for k, v in links.items())}")
+            print("지난 기록도 넣으려면: gtrack worklog sync --days 30")
+        return
+
+    if not links:
+        raise TrackerError("연결된 저장소가 없습니다. 먼저 'git link' 를 실행하세요.")
+    start, end = worklog.date_range(on=args.date, start=args.start, end=args.end, days=args.days, week=args.week)
+
+    if args.action == "show":
+        text = worklog.to_markdown(worklog.collect(links, start, end, args.author or wcfg.get("author")))
+        if not text:
+            print(f"{start} ~ {end} 커밋이 없습니다.")
+            return
+        if args.out:
+            Path(args.out).write_text(f"# 업무일지 {start} ~ {end}\n\n{text}", encoding="utf-8")
+            print(f"저장했습니다: {args.out}")
+        else:
+            print(text, end="")
+        return
+
+    # sync
+    if not wcfg.get("spreadsheet_id"):
+        raise TrackerError("업무일지 스프레드시트가 없습니다. 먼저 'worklog init' 을 실행하세요.")
+    from datetime import datetime
+
+    _sync_worklog(cfg, service_factory(interactive=not args.quiet), start, end, args.author, quiet=args.quiet,
+                  stamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    if not args.quiet:
+        print(Tracker(None, wcfg["spreadsheet_id"]).url)
+
 
 def run(args, service_factory) -> None:
     if args.cmd == "init":
@@ -331,10 +431,15 @@ def run(args, service_factory) -> None:
             rows = [[name, Tracker(None, sid).url] for name, sid in _project_files().items()]
             if _default_id(args):
                 rows.insert(0, ["(공용 파일)", Tracker(None, _default_id(args)).url])
+            if _load_config().get("worklog", {}).get("spreadsheet_id"):
+                rows.append(["(업무일지)", Tracker(None, _load_config()["worklog"]["spreadsheet_id"]).url])
             print_table(["프로젝트", "URL"], rows, max_width=100)
         return
     if args.cmd == "git":
         run_git(args, service_factory)
+        return
+    if args.cmd == "worklog":
+        run_worklog(args, service_factory)
         return
     service = service_factory()
     # task·raid 는 프로젝트가 있는 파일에서 처리한다. project 명령은 아래에서 파일을 정한다.

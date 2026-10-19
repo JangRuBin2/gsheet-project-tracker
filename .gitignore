@@ -11,3 +11,4 @@ __pycache__/
 .venv/
 *.egg-info/
 build/
+.gtrack-worklog.lock

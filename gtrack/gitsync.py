@@ -98,23 +98,32 @@ def match_tasks(commit: Commit, rule: dict) -> Commit:
     return commit
 
 
-def read_commits(repo: str, since: str | None = None, limit: int = 200) -> list[Commit]:
-    """HEAD 에서 도달 가능한 커밋을 오래된 순으로 돌려준다."""
-    fmt = "%x1e%H%x1f%aI%x1f%an%x1f%s"
+def read_commits(repo: str, since: str | None = None, limit: int = 200, until: str | None = None,
+                 author: str | None = None, all_refs: bool = False) -> list[Commit]:
+    """HEAD 에서 도달 가능한 커밋을 오래된 순으로 돌려준다.
+    all_refs 면 모든 브랜치의 커밋을 읽고, branch 에는 그 커밋을 찾은 브랜치 이름이 들어간다."""
+    fmt = "%x1e%H%x1f%aI%x1f%an%x1f%S%x1f%s"
     args = ["git", "-C", repo, "log", f"-n{limit}", f"--format={fmt}", "--name-only", "--no-merges"]
+    if all_refs:
+        args += ["--all", "--source"]
     if since:
         args.append(f"--since={since}T00:00:00")
+    if until:
+        args.append(f"--until={until}T23:59:59")
+    if author:
+        args.append(f"--author={author}")
     out = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=True).stdout
-    branch = subprocess.run(["git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True,
-                            text=True, encoding="utf-8").stdout.strip()
+    head_branch = subprocess.run(["git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True,
+                                 text=True, encoding="utf-8").stdout.strip()
     commits = []
     for rec in out.split("\x1e"):
         if not rec.strip():
             continue
         head, _, rest = rec.partition("\n")
-        h, date, author, subject = head.split("\x1f", 3)
+        h, date, name, source, subject = head.split("\x1f", 4)
         files = [f.strip() for f in rest.splitlines() if f.strip()]
-        commits.append(Commit(h, date, author, subject, files, branch))
+        branch = re.sub(r"^refs/(heads|remotes/[^/]+)/", "", source) if all_refs else head_branch
+        commits.append(Commit(h, date, name, subject, files, branch))
     return list(reversed(commits))
 
 
